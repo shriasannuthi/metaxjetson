@@ -11,6 +11,7 @@ package com.meta.wearable.dat.externalsampleapps.cameraaccess.ai
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
 import com.google.gson.Gson
@@ -22,6 +23,7 @@ import com.meta.wearable.dat.externalsampleapps.cameraaccess.data.Customer
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.data.CustomerRepository
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -32,7 +34,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 class GeminiService(
   private val context: Context,
   private val customerRepository: CustomerRepository = CustomerRepository(context),
-  private val httpClient: OkHttpClient = OkHttpClient(),
+  private val httpClient: OkHttpClient = DEFAULT_HTTP_CLIENT,
   private val gson: Gson = Gson(),
   private val apiKey: String = BuildConfig.GEMINI_API_KEY,
 ) {
@@ -44,6 +46,7 @@ class GeminiService(
         throw GeminiException("GEMINI_API_KEY is not configured in local.properties.")
       }
 
+      val startedAtMs = SystemClock.elapsedRealtime()
       val request =
           Request.Builder()
               .url("$GEMINI_ENDPOINT?key=$apiKey")
@@ -53,6 +56,11 @@ class GeminiService(
       Log.d(TAG, "Posting Gemini request with ${images.size} image(s)")
       httpClient.newCall(request).execute().use { response ->
         val responseBody = response.body?.string().orEmpty()
+        val durationMs = SystemClock.elapsedRealtime() - startedAtMs
+        Log.d(
+            TAG,
+            "Gemini response received: http=${response.code}, durationMs=$durationMs, bodyChars=${responseBody.length}",
+        )
         if (!response.isSuccessful) {
           throw GeminiException("Gemini request failed: HTTP ${response.code}", responseBody)
         }
@@ -101,8 +109,19 @@ class GeminiService(
       documentBitmap: Bitmap,
       customer: Customer?,
   ): DocumentAnalysisResult {
+    Log.i(
+        TAG,
+        "Document analysis request: bitmap=${documentBitmap.width}x${documentBitmap.height}, customer=${customer?.id ?: "none"}",
+    )
     val responseJson = postToGemini(buildDocumentAnalysisPrompt(customer), listOf(documentBitmap))
     val parsed = parseJsonOnly(responseJson)
+    Log.i(
+        TAG,
+        "Document analysis response parsed=${parsed != null}, rawChars=${responseJson.length}, documentType=${parsed?.get("documentType")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()}",
+    )
+    if (parsed == null) {
+      Log.w(TAG, "Document analysis raw response: ${responseJson.take(MAX_LOG_RESPONSE_CHARS)}")
+    }
     return DocumentAnalysisResult(rawJson = responseJson, json = parsed)
   }
 
@@ -140,6 +159,10 @@ class GeminiService(
   }
 
   private fun buildRequestBody(prompt: String, images: List<Bitmap>): String {
+    Log.d(
+        TAG,
+        "Building Gemini request: promptChars=${prompt.length}, imageSizes=${images.joinToString { "${it.width}x${it.height}" }}",
+    )
     val parts =
         JsonArray().apply {
           add(JsonObject().apply { addProperty("text", prompt) })
@@ -327,11 +350,18 @@ class GeminiService(
     private const val GEMINI_ENDPOINT =
         "https://generativelanguage.googleapis.com/v1beta/models/$MODEL_ID:streamGenerateContent"
     private const val PLACEHOLDER_API_KEY = "your_actual_key_here"
-    private const val JPEG_QUALITY = 85
-    private const val MAX_IMAGE_SIDE_PX = 1536
+    private const val JPEG_QUALITY = 78
+    private const val MAX_IMAGE_SIDE_PX = 1024
     private const val MIN_FACE_MATCH_CONFIDENCE = 0.65
     private const val MAX_LOG_RESPONSE_CHARS = 500
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+    private val DEFAULT_HTTP_CLIENT =
+        OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .callTimeout(150, TimeUnit.SECONDS)
+            .build()
   }
 }
 

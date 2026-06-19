@@ -14,6 +14,7 @@ package com.meta.wearable.dat.externalsampleapps.cameraaccess.stream
 
 import android.graphics.Bitmap
 import com.meta.wearable.dat.camera.types.StreamState
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.DocumentAnalysisResult
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.data.Customer
 
 data class StreamUiState(
@@ -28,4 +29,8 @@ data class StreamUiState(
     val matchedCustomer: Customer? = null,
     val isFaceRecognitionRunning: Boolean = false,
     val faceRecognitionStatus: String? = null,
+    val isVoiceCommandListening: Boolean = false,
+    val voiceCommandStatus: String? = null,
+    val isDocumentAnalyzing: Boolean = false,
+    val documentAnalysis: DocumentAnalysisResult? = null,
 )

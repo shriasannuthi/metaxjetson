@@ -59,6 +59,7 @@ class VoiceCommandListener(
       return
     }
 
+    Log.i(TAG, "Starting speech recognizer for command: $command")
     isListening = true
     routeAudioToGlassesIfAvailable()
     ensureRecognizer()
@@ -76,6 +77,7 @@ class VoiceCommandListener(
     speechRecognizer?.destroy()
     speechRecognizer = null
     audioManager.clearCommunicationDevice()
+    Log.i(TAG, "Stopped speech recognizer")
   }
 
   private fun ensureRecognizer() {
@@ -96,7 +98,7 @@ class VoiceCommandListener(
                 override fun onEndOfSpeech() = Unit
 
                 override fun onError(error: Int) {
-                  Log.d(TAG, "Speech recognition error: $error")
+                  Log.i(TAG, "Speech recognition error: $error")
                   scheduleRestart()
                 }
 
@@ -132,6 +134,7 @@ class VoiceCommandListener(
         }
 
     try {
+      Log.i(TAG, "Calling SpeechRecognizer.startListening")
       speechRecognizer?.startListening(intent)
     } catch (e: RuntimeException) {
       Log.e(TAG, "Failed to start speech recognition", e)
@@ -141,16 +144,20 @@ class VoiceCommandListener(
 
   private fun scheduleRestart() {
     if (!isListening) return
+    Log.i(TAG, "Scheduling speech recognizer restart")
     mainHandler.postDelayed({ listen() }, RESTART_DELAY_MS)
   }
 
   private fun handleRecognizedText(results: Bundle?) {
     val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
     if (matches.isNotEmpty()) {
-      Log.d(TAG, "Recognized speech candidates: $matches")
+      Log.i(TAG, "Recognized speech candidates: $matches")
     }
 
     if (matches.none { it.matchesVoiceCommand() }) {
+      if (matches.isNotEmpty()) {
+        Log.i(TAG, "Speech did not match command: $command")
+      }
       return
     }
 
@@ -160,7 +167,7 @@ class VoiceCommandListener(
     }
 
     lastCommandDetectedAtMs = now
-    Log.d(TAG, "Voice command detected: $command")
+    Log.i(TAG, "Voice command detected: $command")
     onCommandDetected()
   }
 
@@ -170,7 +177,7 @@ class VoiceCommandListener(
           it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
         }
     if (scoDevice == null) {
-      Log.d(TAG, "No Bluetooth SCO device found; using default microphone for speech recognition")
+      Log.i(TAG, "No Bluetooth SCO device found; using default microphone for speech recognition")
       return
     }
     if (!audioManager.setCommunicationDevice(scoDevice)) {
