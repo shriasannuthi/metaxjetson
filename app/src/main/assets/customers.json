@@ -45,6 +45,29 @@
           "notes": "Requested document checklist for working capital renewal."
         }
       ]
+    },
+    {
+      "id": "CUST003",
+      "name": "Shria Sannuthi",
+      "phone": "993472687",
+      "profile": "SME owner evaluating working capital options",
+      "faceImage": "shria_face.png",
+      "lastVisit": "2026-06-04",
+      "accounts": [
+        {
+          "accountNumber": "XXXX-2048",
+          "type": "Current",
+          "balance": "INR 42,10,500",
+          "status": "Active"
+        }
+      ],
+      "history": [
+        {
+          "date": "2026-06-04",
+          "type": "Relationship call",
+          "notes": "Requested document checklist for working capital renewal."
+        }
+      ]
     }
   ]
 }

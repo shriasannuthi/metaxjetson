@@ -19,6 +19,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,6 +32,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -45,11 +47,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.meta.wearable.dat.camera.types.StreamState
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.R
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.data.Customer
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.stream.StreamViewModel
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.wearables.WearablesViewModel
 
@@ -88,6 +93,13 @@ fun StreamScreen(
           modifier = Modifier.align(Alignment.Center),
       )
     }
+
+    CustomerRecognitionOverlay(
+        customer = streamUiState.matchedCustomer,
+        isScanning = streamUiState.isFaceRecognitionRunning,
+        status = streamUiState.faceRecognitionStatus,
+        modifier = Modifier.align(Alignment.TopEnd).padding(top = 80.dp, end = 24.dp),
+    )
 
     // Audio status overlay
     if (streamUiState.audioFrameCount > 0) {
@@ -171,4 +183,75 @@ fun StreamScreen(
             }
         )
     }
+}
+
+@Composable
+private fun CustomerRecognitionOverlay(
+    customer: Customer?,
+    isScanning: Boolean,
+    status: String?,
+    modifier: Modifier = Modifier,
+) {
+  if (customer == null && status.isNullOrBlank() && !isScanning) return
+
+  Box(
+      modifier =
+          modifier
+              .fillMaxWidth(0.78f)
+              .background(Color.Black.copy(alpha = 0.68f), shape = RoundedCornerShape(8.dp))
+              .padding(12.dp)
+  ) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = Icons.Default.PersonSearch,
+            contentDescription = "Customer recognition",
+            tint = if (customer != null) AppColor.Green else AppColor.Yellow,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = customer?.name ?: status ?: "Scanning customer",
+            color = Color.White,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+      }
+
+      if (customer != null) {
+        Text(
+            text = customer.profile,
+            color = Color.White.copy(alpha = 0.88f),
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = "Last visit: ${customer.lastVisit}",
+            color = Color.White.copy(alpha = 0.72f),
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+      } else if (isScanning) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          CircularProgressIndicator(
+              modifier = Modifier.size(14.dp),
+              strokeWidth = 2.dp,
+              color = Color.White,
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text(
+              text = "Checking customer database",
+              color = Color.White.copy(alpha = 0.82f),
+              style = MaterialTheme.typography.labelSmall,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+          )
+        }
+      }
+    }
+  }
 }

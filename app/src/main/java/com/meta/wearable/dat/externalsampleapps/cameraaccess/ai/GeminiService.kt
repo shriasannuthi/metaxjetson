@@ -36,9 +36,11 @@ class GeminiService(
   private val gson: Gson = Gson(),
   private val apiKey: String = BuildConfig.GEMINI_API_KEY,
 ) {
+  fun isConfigured(): Boolean = apiKey.isNotBlank() && apiKey != PLACEHOLDER_API_KEY
+
   suspend fun postToGemini(prompt: String, images: List<Bitmap> = emptyList()): String =
     withContext(Dispatchers.IO) {
-      if (apiKey.isBlank() || apiKey == PLACEHOLDER_API_KEY) {
+      if (!isConfigured()) {
         throw GeminiException("GEMINI_API_KEY is not configured in local.properties.")
       }
 
@@ -65,14 +67,31 @@ class GeminiService(
     val customers = customerRepository.loadCustomers()
     if (customers.isEmpty()) return null
 
-    val prompt = buildFaceMatchPrompt(customers)
-    val referenceImages = loadCustomerFaceImages(customers)
-    val responseJson = postToGemini(prompt, listOf(currentFrame) + referenceImages)
+    val faceReferences = loadCustomerFaceReferences(customers)
+    if (faceReferences.isEmpty()) {
+      Log.w(TAG, "No customer face reference images were found in assets/faces")
+      return null
+    }
+
+    val prompt = buildFaceMatchPrompt(faceReferences)
+    val responseJson =
+        try {
+          postToGemini(prompt, listOf(currentFrame) + faceReferences.map { it.bitmap })
+        } finally {
+          faceReferences.forEach { it.bitmap.recycle() }
+        }
     val match =
         parseJsonOnly(responseJson)?.let { gson.fromJson(it, FaceMatchResponse::class.java) }
 
     val confidence = match?.confidence ?: 0.0
     val matchedCustomerId = match?.matchedCustomerId.orEmpty()
+    Log.i(
+        TAG,
+        "Face match response: isMatch=${match?.isMatch}, customerId=$matchedCustomerId, confidence=$confidence",
+    )
+    if (match == null) {
+      Log.w(TAG, "Unable to parse face match JSON: ${responseJson.take(MAX_LOG_RESPONSE_CHARS)}")
+    }
     if (!match?.isMatch.orFalse() || confidence < MIN_FACE_MATCH_CONFIDENCE) return null
 
     return customers.firstOrNull { it.id.equals(matchedCustomerId, ignoreCase = true) }
@@ -194,17 +213,20 @@ class GeminiService(
     }.trim()
   }
 
-  private fun buildFaceMatchPrompt(customers: List<Customer>): String {
-    val customerSummaries =
-        customers.joinToString(separator = "\n") { customer ->
-          "- ${customer.id}: ${customer.name}, phone ${customer.phone}, profile: ${customer.profile}, faceImage: ${customer.faceImage}"
+  private fun buildFaceMatchPrompt(faceReferences: List<CustomerFaceReference>): String {
+    val referenceSummaries =
+        faceReferences.mapIndexed { index, reference ->
+          val customer = reference.customer
+          "Image ${index + 2}: ${customer.id}, ${customer.name}, phone ${customer.phone}, profile: ${customer.profile}, faceImage: ${customer.faceImage}"
         }
+            .joinToString(separator = "\n")
     return """
       You are matching a live camera frame to a small bank customer reference list.
-      Image 1 is the current camera frame. The remaining images are reference face images in the same order as the customer list below when available.
+      Image 1 is the current camera frame.
+      Each remaining image is a known customer face reference mapped below.
 
-      Customers:
-      $customerSummaries
+      Known face references:
+      $referenceSummaries
 
       Respond with valid JSON only using this schema:
       {
@@ -248,12 +270,15 @@ class GeminiService(
     """.trimIndent()
   }
 
-  private fun loadCustomerFaceImages(customers: List<Customer>): List<Bitmap> =
+  private fun loadCustomerFaceReferences(customers: List<Customer>): List<CustomerFaceReference> =
       customers.mapNotNull { customer ->
         runCatching {
-              context.assets
-                  .open(customerRepository.faceAssetPath(customer))
-                  .use(BitmapFactory::decodeStream)
+              val bitmap =
+                  context.assets
+                      .open(customerRepository.faceAssetPath(customer))
+                      .use(BitmapFactory::decodeStream)
+                      ?: error("Unable to decode ${customer.faceImage}")
+              CustomerFaceReference(customer = customer, bitmap = bitmap)
             }
             .onFailure {
               Log.w(TAG, "Missing face reference for ${customer.id}: ${customer.faceImage}")
@@ -305,6 +330,7 @@ class GeminiService(
     private const val JPEG_QUALITY = 85
     private const val MAX_IMAGE_SIDE_PX = 1536
     private const val MIN_FACE_MATCH_CONFIDENCE = 0.65
+    private const val MAX_LOG_RESPONSE_CHARS = 500
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
   }
 }
@@ -342,4 +368,9 @@ private data class VoiceIntentResponse(
   val intent: String = "NONE",
   val confidence: Double = 0.0,
   val reason: String = "",
+)
+
+private data class CustomerFaceReference(
+  val customer: Customer,
+  val bitmap: Bitmap,
 )

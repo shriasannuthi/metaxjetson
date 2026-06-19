@@ -23,6 +23,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.FileProvider
 import androidx.exifinterface.media.ExifInterface
@@ -44,12 +45,14 @@ import com.meta.wearable.dat.core.session.DeviceSession
 import com.meta.wearable.dat.core.session.DeviceSessionState
 import com.meta.wearable.dat.core.types.DeviceSessionError
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.R
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.GeminiService
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.wearables.WearablesViewModel
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -67,9 +70,11 @@ class StreamViewModel(
     private const val TAG = "CameraAccess:StreamViewModel"
     private val INITIAL_STATE = StreamUiState()
     private val SESSION_TERMINAL_STATES = setOf(StreamState.CLOSED)
+    private const val FACE_RECOGNITION_INTERVAL_MS = 5_000L
   }
 
   private val deviceSelector: DeviceSelector = wearablesViewModel.deviceSelector
+  private val geminiService: GeminiService = GeminiService(application)
   private var session: DeviceSession? = null
 
   private val _uiState = MutableStateFlow(INITIAL_STATE)
@@ -81,6 +86,8 @@ class StreamViewModel(
   private var errorJob: Job? = null
   @SuppressLint("MissingGuardedByAnnotation") private var sessionErrorJob: Job? = null
   private var sessionStateJob: Job? = null
+  private var faceRecognitionJob: Job? = null
+  private var lastFaceRecognitionAtMs = 0L
   private var stream: Stream? = null
   private var audioStream: AudioStream? = null
   private var previousDeviceSessionState: DeviceSessionState? = null
@@ -104,6 +111,9 @@ class StreamViewModel(
     presentationQueue?.stop()
     presentationQueue = null
     previousDeviceSessionState = null
+    faceRecognitionJob?.cancel()
+    faceRecognitionJob = null
+    lastFaceRecognitionAtMs = 0L
 
     // Reset audio recording buffer
     audioRecordingBuffer = ByteArrayOutputStream()
@@ -119,11 +129,12 @@ class StreamViewModel(
             onFrameReady = { frame ->
               // This is called from the presentation thread at regular intervals
               // when a frame's presentation time has arrived
-              viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+              viewModelScope.launch(Dispatchers.Main) {
                 _uiState.update {
                   it.copy(videoFrame = frame.bitmap, videoFrameCount = it.videoFrameCount + 1)
                 }
               }
+              scheduleFaceRecognition(frame.bitmap)
             },
         )
     presentationQueue = queue
@@ -245,9 +256,14 @@ class StreamViewModel(
     sessionErrorJob = null
     sessionStateJob?.cancel()
     sessionStateJob = null
+    faceRecognitionJob?.cancel()
+    faceRecognitionJob = null
+    lastFaceRecognitionAtMs = 0L
     presentationQueue?.stop()
     presentationQueue = null
-    _uiState.update { it.copy(streamState = StreamState.STOPPED) }
+    _uiState.update {
+      it.copy(streamState = StreamState.STOPPED, isFaceRecognitionRunning = false)
+    }
     stream?.stop()
     stream = null
     audioStream?.stop()
@@ -400,9 +416,71 @@ class StreamViewModel(
     }
   }
 
+  private fun scheduleFaceRecognition(frameBitmap: Bitmap) {
+    val now = SystemClock.elapsedRealtime()
+    if (now - lastFaceRecognitionAtMs < FACE_RECOGNITION_INTERVAL_MS) return
+    if (faceRecognitionJob?.isActive == true) return
+
+    if (!geminiService.isConfigured()) {
+      lastFaceRecognitionAtMs = now
+      Log.w(TAG, "Skipping face recognition because GEMINI_API_KEY is not configured")
+      _uiState.update {
+        it.copy(faceRecognitionStatus = "Add GEMINI_API_KEY to enable face recognition")
+      }
+      return
+    }
+
+    val recognitionBitmap =
+        try {
+          frameBitmap.copy(frameBitmap.config ?: Bitmap.Config.ARGB_8888, false)
+        } catch (e: Exception) {
+          Log.w(TAG, "Unable to copy frame for face recognition", e)
+          return
+        }
+
+    lastFaceRecognitionAtMs = now
+    Log.i(TAG, "Starting face recognition from stream frame")
+    _uiState.update {
+      it.copy(isFaceRecognitionRunning = true, faceRecognitionStatus = "Scanning customer")
+    }
+
+    // TODO: Replace with Meta DAT Glasses camera stream once glasses hardware is swapped in.
+    faceRecognitionJob =
+        viewModelScope.launch(Dispatchers.IO) {
+          try {
+            val matchedCustomer = geminiService.detectAndMatchFace(recognitionBitmap)
+            Log.i(TAG, "Face recognition result: ${matchedCustomer?.id ?: "no match"}")
+            _uiState.update {
+              if (matchedCustomer != null) {
+                it.copy(
+                    matchedCustomer = matchedCustomer,
+                    isFaceRecognitionRunning = false,
+                    faceRecognitionStatus = "Customer matched",
+                )
+              } else {
+                it.copy(
+                    isFaceRecognitionRunning = false,
+                    faceRecognitionStatus = "No customer match",
+                )
+              }
+            }
+          } catch (e: Exception) {
+            Log.w(TAG, "Face recognition failed", e)
+            _uiState.update {
+              it.copy(
+                  isFaceRecognitionRunning = false,
+                  faceRecognitionStatus = e.message ?: "Face recognition failed",
+              )
+            }
+          } finally {
+            recognitionBitmap.recycle()
+          }
+        }
+  }
+
   private fun handleAudioFrame(audioFrame: AudioFrame) {
     // Audio frame received from the glasses microphone (via Bluetooth HFP).
-    viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+    viewModelScope.launch(Dispatchers.Main) {
       _uiState.update { it.copy(audioFrameCount = it.audioFrameCount + 1) }
     }
 
