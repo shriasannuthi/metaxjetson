@@ -86,7 +86,10 @@ class StreamViewModel(
   private var previousDeviceSessionState: DeviceSessionState? = null
 
   // Buffer for recording audio frames
+  // Buffer for recording audio frames
   private var audioRecordingBuffer = ByteArrayOutputStream()
+  private var recordedAudioSampleRate = 0
+  private var recordedAudioChannelCount = 0
 
   // Presentation queue for buffering frames after color conversion
   private var presentationQueue: PresentationQueue? = null
@@ -104,6 +107,8 @@ class StreamViewModel(
 
     // Reset audio recording buffer
     audioRecordingBuffer = ByteArrayOutputStream()
+    recordedAudioSampleRate = 0
+    recordedAudioChannelCount = 0
 
     // Initialize presentation queue - frames are presented based on timestamp, not arrival time
     // Uses IntArray pooling for efficiency - cheaper than Bitmap.copy()
@@ -175,15 +180,16 @@ class StreamViewModel(
                 }
 
                 // Start Audio Streaming
-                // Using MockAudioStream as the public SDK doesn't expose audio yet.
-                // This implements the requested "mock audio streaming" capability.
-                val mockAudio = MockAudioStream()
-                audioStream = mockAudio
+                // The DAT SDK doesn't expose a dedicated audio API — glasses mic/speaker audio is
+                // accessed via the system Bluetooth HFP profile. See:
+                // https://wearables.developer.meta.com/docs/microphones-and-speakers/
+                val glassesAudio = BluetoothMicAudioStream(getApplication())
+                audioStream = glassesAudio
                 audioJob = viewModelScope.launch {
-                  Log.d(TAG, "Collecting audio frames from stream")
-                  mockAudio.audioStream.collect { handleAudioFrame(it) }
+                  Log.d(TAG, "Collecting audio frames from glasses microphone")
+                  glassesAudio.audioStream.collect { handleAudioFrame(it) }
                 }
-                mockAudio.start()
+                glassesAudio.start()
 
                 stateJob = viewModelScope.launch {
                   stream?.state?.collect { streamState ->
@@ -263,8 +269,12 @@ class StreamViewModel(
     audioRecordingBuffer = ByteArrayOutputStream()
   }
 
-  fun getRecordedAudio(): ByteArray {
-    return audioRecordingBuffer.toByteArray()
+  fun getRecordedAudio(): RecordedAudio {
+    return RecordedAudio(
+      data = audioRecordingBuffer.toByteArray(),
+      sampleRateHz = recordedAudioSampleRate.takeIf { it > 0 } ?: 8000,
+      channelCount = recordedAudioChannelCount.takeIf { it > 0 } ?: 1,
+    )
   }
 
   private fun handleSessionError(error: DeviceSessionError) {
@@ -391,12 +401,13 @@ class StreamViewModel(
   }
 
   private fun handleAudioFrame(audioFrame: AudioFrame) {
-    // Audio frame received - in a real app, this would be sent to an AudioTrack
-    // or downstream AI processing as requested.
-    // For now, we just update the UI counter to show activity.
+    // Audio frame received from the glasses microphone (via Bluetooth HFP).
     viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
       _uiState.update { it.copy(audioFrameCount = it.audioFrameCount + 1) }
     }
+
+    recordedAudioSampleRate = audioFrame.sampleRate
+    recordedAudioChannelCount = audioFrame.channelCount
 
     // Accumulate audio data for playback after stream stops
     try {
@@ -408,7 +419,6 @@ class StreamViewModel(
     }
 
     // TODO: Forward audioFrame.buffer to downstream AI analysis
-    // Log.d(TAG, "Received audio frame: ${audioFrame.presentationTimeUs}")
   }
 
   private fun handlePhotoData(photo: PhotoData) {

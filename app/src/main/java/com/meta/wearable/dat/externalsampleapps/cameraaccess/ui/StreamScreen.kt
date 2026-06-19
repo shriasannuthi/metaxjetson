@@ -159,13 +159,16 @@ fun StreamScreen(
     }
   }
 
-  if (streamUiState.isAudioPlaybackVisible) {
-    AudioPlaybackDialog(
-        audioData = streamViewModel.getRecordedAudio(),
-        onDismiss = {
-          streamViewModel.hideAudioPlayback()
-          wearablesViewModel.navigateToDeviceSelection()
-        }
-    )
-  }
+    if (streamUiState.isAudioPlaybackVisible) {
+        val recordedAudio = streamViewModel.getRecordedAudio()
+        AudioPlaybackDialog(
+            audioData = recordedAudio.data,
+            sampleRateHz = recordedAudio.sampleRateHz,
+            channelCount = recordedAudio.channelCount,
+            onDismiss = {
+                streamViewModel.hideAudioPlayback()
+                wearablesViewModel.navigateToDeviceSelection()
+            }
+        )
+    }
 }

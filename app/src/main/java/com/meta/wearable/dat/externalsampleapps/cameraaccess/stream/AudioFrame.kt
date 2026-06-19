@@ -1,22 +1,21 @@
-/*
- * Copyright (c) Meta Platforms, Inc. and affiliates.
- * All rights reserved.
- *
- * This source code is licensed under the license found in the
- * LICENSE file in the root directory of this source tree.
- */
-
 package com.meta.wearable.dat.externalsampleapps.cameraaccess.stream
 
 import java.nio.ByteBuffer
 
 /**
- * AudioFrame - Representation of a single audio frame from the wearable device.
- * Mimics the pattern of VideoFrame but for audio data.
+ * AudioFrame - Representation of a single audio frame captured from the wearable device's
+ * microphone, delivered to the phone over the Bluetooth Hands-Free Profile (HFP).
  */
 data class AudioFrame(
     val buffer: ByteBuffer,
     val presentationTimeUs: Long,
-    val sampleRate: Int = 48000,
-    val channelCount: Int = 2
+    val sampleRate: Int = 8000,
+    val channelCount: Int = 1
+)
+
+/** RecordedAudio - A buffered recording plus the format needed to play it back correctly. */
+data class RecordedAudio(
+    val data: ByteArray,
+    val sampleRateHz: Int,
+    val channelCount: Int,
 )

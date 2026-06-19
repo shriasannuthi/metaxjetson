@@ -43,47 +43,47 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun AudioPlaybackDialog(
     audioData: ByteArray,
+    sampleRateHz: Int,
+    channelCount: Int,
     onDismiss: () -> Unit,
 ) {
-  var isPlaying by remember { mutableStateOf(false) }
-  var audioTrack by remember { mutableStateOf<AudioTrack?>(null) }
+    var isPlaying by remember { mutableStateOf(false) }
+    var audioTrack by remember { mutableStateOf<AudioTrack?>(null) }
 
-  DisposableEffect(Unit) {
-    onDispose {
-      audioTrack?.stop()
-      audioTrack?.release()
-    }
-  }
-
-  fun playAudio() {
-    if (audioTrack == null) {
-      val sampleRate = 48000
-      val bufferSize = AudioTrack.getMinBufferSize(
-          sampleRate,
-          AudioFormat.CHANNEL_OUT_STEREO,
-          AudioFormat.ENCODING_PCM_16BIT
-      )
-
-      audioTrack = AudioTrack.Builder()
-          .setAudioAttributes(AudioAttributes.Builder()
-              .setUsage(AudioAttributes.USAGE_MEDIA)
-              .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-              .build())
-          .setAudioFormat(AudioFormat.Builder()
-              .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-              .setSampleRate(sampleRate)
-              .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
-              .build())
-          .setBufferSizeInBytes(bufferSize.coerceAtLeast(audioData.size))
-          .setTransferMode(AudioTrack.MODE_STATIC)
-          .build()
-
-      audioTrack?.write(audioData, 0, audioData.size)
+    DisposableEffect(Unit) {
+        onDispose {
+            audioTrack?.stop()
+            audioTrack?.release()
+        }
     }
 
-    audioTrack?.play()
-    isPlaying = true
-  }
+    fun playAudio() {
+        if (audioTrack == null) {
+            val channelMask =
+                if (channelCount >= 2) AudioFormat.CHANNEL_OUT_STEREO else AudioFormat.CHANNEL_OUT_MONO
+            val bufferSize =
+                AudioTrack.getMinBufferSize(sampleRateHz, channelMask, AudioFormat.ENCODING_PCM_16BIT)
+
+            audioTrack = AudioTrack.Builder()
+                .setAudioAttributes(AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build())
+                .setAudioFormat(AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(sampleRateHz)
+                    .setChannelMask(channelMask)
+                    .build())
+                .setBufferSizeInBytes(bufferSize.coerceAtLeast(audioData.size))
+                .setTransferMode(AudioTrack.MODE_STATIC)
+                .build()
+
+            audioTrack?.write(audioData, 0, audioData.size)
+        }
+
+        audioTrack?.play()
+        isPlaying = true
+    }
 
   fun pauseAudio() {
     audioTrack?.pause()
