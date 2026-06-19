@@ -6,11 +6,23 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+import java.util.Properties
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.jetbrains.kotlin.android)
   alias(libs.plugins.compose.compiler)
 }
+
+val localProperties =
+    Properties().apply {
+      val localPropertiesFile = rootProject.file("local.properties")
+      if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use(::load)
+      }
+    }
+val geminiApiKey =
+    localProperties.getProperty("GEMINI_API_KEY", "").replace("\\", "\\\\").replace("\"", "\\\"")
 
 android {
   namespace = "com.meta.wearable.dat.externalsampleapps.cameraaccess"
@@ -27,6 +39,11 @@ android {
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     vectorDrawables { useSupportLibrary = true }
+    buildConfigField(
+        "String",
+        "GEMINI_API_KEY",
+        "\"$geminiApiKey\"",
+    )
 
     // Meta Wearables Device Access Toolkit Setup
     // Without Developer Mode, these values need to be set with credentials from the app registered
