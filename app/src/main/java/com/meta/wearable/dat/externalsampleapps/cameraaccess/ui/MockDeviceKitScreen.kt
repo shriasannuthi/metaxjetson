@@ -185,11 +185,11 @@ private fun MockDeviceCard(
         ->
         uri?.let { selectedUri -> viewModel.setCapturedImage(deviceInfo, selectedUri) }
       }
-  val audioPickerLauncher =
-      rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri?
-        ->
-        uri?.let { selectedUri -> viewModel.setAudioFeed(deviceInfo, selectedUri) }
-      }
+//  val audioPickerLauncher =
+//      rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri?
+//        ->
+//        uri?.let { selectedUri -> viewModel.setAudioFeed(deviceInfo, selectedUri) }
+//      }
 
   // Camera permission handling for phone camera source
   var pendingCameraFacing by remember { mutableStateOf<CameraFacing?>(null) }
@@ -342,32 +342,32 @@ private fun MockDeviceCard(
           )
 
           // Audio source selection
-          Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            val audioLabel = if (deviceInfo.hasAudioFeed) {
-              stringResource(R.string.audio_source_file)
-            } else {
-              stringResource(R.string.audio_source_none)
-            }
-
-            OutlinedButton(
-                onClick = { audioPickerLauncher.launch("audio/*") },
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-            ) {
-              Text(
-                  text = stringResource(R.string.audio_source_label, audioLabel),
-                  style = MaterialTheme.typography.bodyMedium,
-                  modifier = Modifier.weight(1f),
-              )
-              if (deviceInfo.hasAudioFeed) {
-                Text(
-                    text = stringResource(R.string.has_audio_feed),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = AppColor.Green
-                )
-              }
-            }
-          }
+//          Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+//            val audioLabel = if (deviceInfo.hasAudioFeed) {
+//              stringResource(R.string.audio_source_file)
+//            } else {
+//              stringResource(R.string.audio_source_none)
+//            }
+//
+//            OutlinedButton(
+//                onClick = { audioPickerLauncher.launch("audio/*") },
+//                modifier = Modifier.fillMaxWidth(),
+//                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+//            ) {
+//              Text(
+//                  text = stringResource(R.string.audio_source_label, audioLabel),
+//                  style = MaterialTheme.typography.bodyMedium,
+//                  modifier = Modifier.weight(1f),
+//              )
+//              if (deviceInfo.hasAudioFeed) {
+//                Text(
+//                    text = stringResource(R.string.has_audio_feed),
+//                    style = MaterialTheme.typography.labelSmall,
+//                    color = AppColor.Green
+//                )
+//              }
+//            }
+//          }
 
           // Captured image control — hidden when a camera source (front/back) is selected
           if (!isCameraSourceSelected) {
