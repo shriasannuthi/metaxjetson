@@ -1,0 +1,50 @@
+{
+  "customers": [
+    {
+      "id": "CUST001",
+      "name": "Rahul Sharma",
+      "phone": "9876543210",
+      "profile": "High-value customer, interested in home loan",
+      "faceImage": "rahul_face.jpg",
+      "lastVisit": "2026-06-10",
+      "accounts": [
+        {
+          "accountNumber": "XXXX-1024",
+          "type": "Savings",
+          "balance": "INR 18,45,000",
+          "status": "Active"
+        }
+      ],
+      "history": [
+        {
+          "date": "2026-06-10",
+          "type": "Branch visit",
+          "notes": "Discussed home loan eligibility and premium banking upgrade."
+        }
+      ]
+    },
+    {
+      "id": "CUST002",
+      "name": "Ananya Iyer",
+      "phone": "9988776655",
+      "profile": "SME owner evaluating working capital options",
+      "faceImage": "ananya_face.jpg",
+      "lastVisit": "2026-06-04",
+      "accounts": [
+        {
+          "accountNumber": "XXXX-2048",
+          "type": "Current",
+          "balance": "INR 42,10,500",
+          "status": "Active"
+        }
+      ],
+      "history": [
+        {
+          "date": "2026-06-04",
+          "type": "Relationship call",
+          "notes": "Requested document checklist for working capital renewal."
+        }
+      ]
+    }
+  ]
+}
