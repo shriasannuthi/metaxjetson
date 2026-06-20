@@ -61,7 +61,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @SuppressLint("AutoCloseableUse")
 class StreamViewModel(
@@ -444,16 +443,14 @@ class StreamViewModel(
     Log.i(TAG, "Voice scan command detected")
     Log.i(
         TAG,
-        "Document scan trigger state: stream=${_uiState.value.streamState}, isCapturing=${_uiState.value.isCapturing}, isAnalyzing=${_uiState.value.isDocumentAnalyzing}, matchedCustomer=${_uiState.value.matchedCustomer?.id ?: "none"}",
+        "Document scan trigger state: stream=${_uiState.value.streamState}, isCapturing=${_uiState.value.isCapturing}, isAnalyzing=${_uiState.value.isDocumentAnalyzing}, hasFrame=${_uiState.value.videoFrame != null}",
     )
     if (_uiState.value.isDocumentAnalyzing || _uiState.value.isCapturing) {
       Log.d(TAG, "Document scan already in progress, ignoring voice command")
       return
     }
-    faceRecognitionJob?.cancel()
-    faceRecognitionJob = null
     _uiState.update { it.copy(voiceCommandStatus = "Scan command detected") }
-    captureAndAnalyzeDocument()
+    snapshotAndAnalyzeDocument()
   }
 
   fun scanDocument() {
@@ -462,13 +459,11 @@ class StreamViewModel(
       Log.d(TAG, "Document scan already in progress, ignoring manual request")
       return
     }
-    faceRecognitionJob?.cancel()
-    faceRecognitionJob = null
     _uiState.update { it.copy(voiceCommandStatus = "Manual scan requested") }
-    captureAndAnalyzeDocument()
+    snapshotAndAnalyzeDocument()
   }
 
-  private fun captureAndAnalyzeDocument() {
+  private fun snapshotAndAnalyzeDocument() {
     Log.i(TAG, "Document scan flow starting")
     if (uiState.value.streamState != StreamState.STREAMING) {
       Log.w(TAG, "Cannot scan document: stream not active (state=${uiState.value.streamState})")
@@ -484,99 +479,66 @@ class StreamViewModel(
       return
     }
 
+    val currentFrame = _uiState.value.videoFrame
+    val documentBitmap =
+        try {
+          currentFrame?.copy(currentFrame.config ?: Bitmap.Config.ARGB_8888, false)
+        } catch (e: Exception) {
+          Log.w(TAG, "Unable to copy stream frame for document scan", e)
+          null
+        }
+    if (documentBitmap == null) {
+      Log.w(TAG, "Cannot scan document: no stream frame is available")
+      _uiState.update { it.copy(voiceCommandStatus = "No stream frame available") }
+      return
+    }
+
     val scanStartedAtMs = SystemClock.elapsedRealtime()
     _uiState.update {
       it.copy(
-          isCapturing = true,
           isDocumentAnalyzing = true,
           documentAnalysis = null,
-          voiceCommandStatus = "Capturing document",
+          voiceCommandStatus = "Analyzing document",
       )
     }
 
-    viewModelScope.launch {
-      val captureStartedAtMs = SystemClock.elapsedRealtime()
-      Log.i(TAG, "Document photo capture requested")
-      stream
-          ?.capturePhoto()
-          ?.onSuccess { photoData ->
-            val captureDurationMs = SystemClock.elapsedRealtime() - captureStartedAtMs
-            Log.i(
-                TAG,
-                "Document photo capture successful: type=${photoData::class.java.simpleName}, durationMs=$captureDurationMs",
-            )
-            val documentBitmap = decodePhotoData(photoData)
-            Log.i(
-                TAG,
-                "Document bitmap decoded: ${documentBitmap.width}x${documentBitmap.height}, config=${documentBitmap.config}",
-            )
-            _uiState.update {
-              it.copy(isCapturing = false, voiceCommandStatus = "Analyzing document")
-            }
-
-            try {
-              val customer = _uiState.value.matchedCustomer
-              val analysisStartedAtMs = SystemClock.elapsedRealtime()
-              Log.i(
-                  TAG,
-                  "Starting document analysis with customer=${customer?.id ?: "none"}, bitmap=${documentBitmap.width}x${documentBitmap.height}",
-              )
-              val analysis =
-                  withContext(Dispatchers.IO) {
-                    geminiService.analyzeDocument(documentBitmap, customer)
-                  }
-              val analysisDurationMs = SystemClock.elapsedRealtime() - analysisStartedAtMs
-              val totalDurationMs = SystemClock.elapsedRealtime() - scanStartedAtMs
-              Log.i(
-                  TAG,
-                  "Document analysis completed: analysisDurationMs=$analysisDurationMs, totalScanDurationMs=$totalDurationMs, parsed=${analysis.json != null}, rawChars=${analysis.rawJson.length}",
-              )
-              _uiState.update {
-                it.copy(
-                    isDocumentAnalyzing = false,
-                    documentAnalysis = analysis,
-                    voiceCommandStatus = "Document analyzed",
-                )
-              }
-            } catch (e: Exception) {
-              val totalDurationMs = SystemClock.elapsedRealtime() - scanStartedAtMs
-              Log.w(
-                  TAG,
-                  "Document analysis failed after ${totalDurationMs}ms: ${e.javaClass.simpleName}: ${e.message}",
-                  e,
-              )
-              _uiState.update {
-                it.copy(
-                    isDocumentAnalyzing = false,
-                    voiceCommandStatus = e.message ?: "Document analysis failed",
-                )
-              }
-            }
-          }
-          ?.onFailure { error, _ ->
-            val totalDurationMs = SystemClock.elapsedRealtime() - scanStartedAtMs
-            Log.e(
-                TAG,
-                "Document photo capture failed after ${totalDurationMs}ms: ${error.description}",
-            )
-            _uiState.update {
-              it.copy(
-                  isCapturing = false,
-                  isDocumentAnalyzing = false,
-                  voiceCommandStatus = error.description,
-              )
-            }
-          }
-          ?: run {
-            Log.w(TAG, "Document photo capture skipped: stream is null")
-            _uiState.update {
-              it.copy(
-                  isCapturing = false,
-                  isDocumentAnalyzing = false,
-                  voiceCommandStatus = "Stream unavailable",
-              )
-            }
-          }
+    viewModelScope.launch(Dispatchers.IO) {
+      try {
+        val analysisStartedAtMs = SystemClock.elapsedRealtime()
+        Log.i(
+            TAG,
+            "Starting document analysis from stream snapshot: bitmap=${documentBitmap.width}x${documentBitmap.height}",
+        )
+        val analysis = geminiService.analyzeDocument(documentBitmap)
+        val analysisDurationMs = SystemClock.elapsedRealtime() - analysisStartedAtMs
+        val totalDurationMs = SystemClock.elapsedRealtime() - scanStartedAtMs
+        Log.i(
+            TAG,
+            "Document analysis completed: analysisDurationMs=$analysisDurationMs, totalScanDurationMs=$totalDurationMs, parsed=${analysis.json != null}, rawChars=${analysis.rawJson.length}",
+        )
+        _uiState.update {
+          it.copy(
+              isDocumentAnalyzing = false,
+              documentAnalysis = analysis,
+              voiceCommandStatus = "Document analyzed",
+          )
+        }
+      } catch (e: Exception) {
+        val totalDurationMs = SystemClock.elapsedRealtime() - scanStartedAtMs
+        Log.w(
+            TAG,
+            "Document analysis failed after ${totalDurationMs}ms: ${e.javaClass.simpleName}: ${e.message}",
+            e,
+        )
+        _uiState.update {
+          it.copy(
+              isDocumentAnalyzing = false,
+              voiceCommandStatus = e.message ?: "Document analysis failed",
+          )
+        }
+      } finally {
+        documentBitmap.recycle()
+      }
     }
   }
 
@@ -637,7 +599,7 @@ class StreamViewModel(
   }
 
   private fun scheduleFaceRecognition(frameBitmap: Bitmap) {
-    if (_uiState.value.isDocumentAnalyzing || _uiState.value.isCapturing) return
+    if (_uiState.value.isCapturing) return
 
     val now = SystemClock.elapsedRealtime()
     val recognitionIntervalMs =
@@ -725,7 +687,7 @@ class StreamViewModel(
           } catch (e: Exception) {
             Log.w(TAG, "Face recognition failed", e)
             _uiState.update {
-              if (it.isDocumentAnalyzing || it.isCapturing) {
+              if (it.isCapturing) {
                 return@update it.copy(isFaceRecognitionRunning = false)
               }
               it.copy(

@@ -336,8 +336,11 @@ private fun DocumentAnalysisOverlay(
           analysis.json.stringValue("summary")?.let {
             AnalysisText(label = "Summary", value = it)
           }
-          analysis.json.stringValue("customerRelevance")?.let {
-            AnalysisText(label = "Customer", value = it)
+          val explanation =
+              analysis.json.stringValue("explanation")
+                  ?: analysis.json.stringValue("customerRelevance")
+          explanation?.let {
+            AnalysisText(label = "Explanation", value = it)
           }
           analysis.json.objectValue("extractedFields")?.takeIf { it.size() > 0 }?.let {
             AnalysisText(label = "Fields", value = it.toCompactDisplay())
