@@ -23,6 +23,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.FileProvider
 import androidx.exifinterface.media.ExifInterface
@@ -44,18 +45,23 @@ import com.meta.wearable.dat.core.session.DeviceSession
 import com.meta.wearable.dat.core.session.DeviceSessionState
 import com.meta.wearable.dat.core.types.DeviceSessionError
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.R
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.FaceRecognitionResult
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.FaceRecognitionService
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.GeminiService
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.wearables.WearablesViewModel
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @SuppressLint("AutoCloseableUse")
 class StreamViewModel(
@@ -67,9 +73,15 @@ class StreamViewModel(
     private const val TAG = "CameraAccess:StreamViewModel"
     private val INITIAL_STATE = StreamUiState()
     private val SESSION_TERMINAL_STATES = setOf(StreamState.CLOSED)
+    private const val FACE_RECOGNITION_INTERVAL_MS = 1_500L
+    private const val MATCHED_FACE_RECHECK_INTERVAL_MS = 6_000L
+    private const val VOICE_SCAN_COMMAND = "hey meta scan"
+    private const val ENABLE_RAW_AUDIO_RECORDING = false
   }
 
   private val deviceSelector: DeviceSelector = wearablesViewModel.deviceSelector
+  private val geminiService: GeminiService = GeminiService(application)
+  private val faceRecognitionService: FaceRecognitionService = FaceRecognitionService(application)
   private var session: DeviceSession? = null
 
   private val _uiState = MutableStateFlow(INITIAL_STATE)
@@ -81,6 +93,9 @@ class StreamViewModel(
   private var errorJob: Job? = null
   @SuppressLint("MissingGuardedByAnnotation") private var sessionErrorJob: Job? = null
   private var sessionStateJob: Job? = null
+  private var faceRecognitionJob: Job? = null
+  private var lastFaceRecognitionAtMs = 0L
+  private var voiceCommandListener: VoiceCommandListener? = null
   private var stream: Stream? = null
   private var audioStream: AudioStream? = null
   private var previousDeviceSessionState: DeviceSessionState? = null
@@ -95,6 +110,7 @@ class StreamViewModel(
   private var presentationQueue: PresentationQueue? = null
 
   fun startStream() {
+    Log.i(TAG, "Starting stream with document scan diagnostics enabled")
     videoJob?.cancel()
     audioJob?.cancel()
     stateJob?.cancel()
@@ -104,6 +120,10 @@ class StreamViewModel(
     presentationQueue?.stop()
     presentationQueue = null
     previousDeviceSessionState = null
+    faceRecognitionJob?.cancel()
+    faceRecognitionJob = null
+    stopVoiceCommandListener()
+    lastFaceRecognitionAtMs = 0L
 
     // Reset audio recording buffer
     audioRecordingBuffer = ByteArrayOutputStream()
@@ -119,11 +139,12 @@ class StreamViewModel(
             onFrameReady = { frame ->
               // This is called from the presentation thread at regular intervals
               // when a frame's presentation time has arrived
-              viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+              viewModelScope.launch(Dispatchers.Main) {
                 _uiState.update {
                   it.copy(videoFrame = frame.bitmap, videoFrameCount = it.videoFrameCount + 1)
                 }
               }
+              scheduleFaceRecognition(frame.bitmap)
             },
         )
     presentationQueue = queue
@@ -179,17 +200,19 @@ class StreamViewModel(
                   Log.d(TAG, "Video stream collection ended")
                 }
 
-                // Start Audio Streaming
-                // The DAT SDK doesn't expose a dedicated audio API — glasses mic/speaker audio is
-                // accessed via the system Bluetooth HFP profile. See:
-                // https://wearables.developer.meta.com/docs/microphones-and-speakers/
-                val glassesAudio = BluetoothMicAudioStream(getApplication())
-                audioStream = glassesAudio
-                audioJob = viewModelScope.launch {
-                  Log.d(TAG, "Collecting audio frames from glasses microphone")
-                  glassesAudio.audioStream.collect { handleAudioFrame(it) }
+                if (ENABLE_RAW_AUDIO_RECORDING) {
+                  // The DAT SDK doesn't expose a dedicated audio API — glasses mic/speaker audio is
+                  // accessed via the system Bluetooth HFP profile. See:
+                  // https://wearables.developer.meta.com/docs/microphones-and-speakers/
+                  val glassesAudio = BluetoothMicAudioStream(getApplication())
+                  audioStream = glassesAudio
+                  audioJob = viewModelScope.launch {
+                    Log.d(TAG, "Collecting audio frames from glasses microphone")
+                    glassesAudio.audioStream.collect { handleAudioFrame(it) }
+                  }
+                  glassesAudio.start()
                 }
-                glassesAudio.start()
+                startVoiceCommandListener()
 
                 stateJob = viewModelScope.launch {
                   stream?.state?.collect { streamState ->
@@ -245,9 +268,20 @@ class StreamViewModel(
     sessionErrorJob = null
     sessionStateJob?.cancel()
     sessionStateJob = null
+    faceRecognitionJob?.cancel()
+    faceRecognitionJob = null
+    stopVoiceCommandListener()
+    lastFaceRecognitionAtMs = 0L
     presentationQueue?.stop()
     presentationQueue = null
-    _uiState.update { it.copy(streamState = StreamState.STOPPED) }
+    _uiState.update {
+      it.copy(
+          streamState = StreamState.STOPPED,
+          isFaceRecognitionRunning = false,
+          isVoiceCommandListening = false,
+          isDocumentAnalyzing = false,
+      )
+    }
     stream?.stop()
     stream = null
     audioStream?.stop()
@@ -348,6 +382,208 @@ class StreamViewModel(
     }
   }
 
+  private fun startVoiceCommandListener() {
+    if (voiceCommandListener != null) {
+      Log.d(TAG, "Voice command listener already started")
+      return
+    }
+
+    voiceCommandListener =
+        VoiceCommandListener(
+            context = getApplication<Application>(),
+            command = VOICE_SCAN_COMMAND,
+            onCommandDetected = { handleVoiceScanCommand() },
+            onSpeechRecognized = { transcript ->
+              Log.d(TAG, "Speech recognized: $transcript")
+              _uiState.update {
+                it.copy(
+                    voiceTranscript = transcript,
+                    voiceCommandStatus = "Heard: $transcript",
+                )
+              }
+            },
+        )
+    voiceCommandListener?.start()
+    _uiState.update {
+      it.copy(
+          isVoiceCommandListening = true,
+          voiceCommandStatus = "Listening for 'Hey Meta Scan'",
+      )
+    }
+    Log.i(TAG, "Voice command listener started")
+  }
+
+  fun listenForVoiceTest() {
+    Log.i(TAG, "Manual voice test requested")
+    if (voiceCommandListener == null) {
+      Log.d(TAG, "Voice command listener not initialized, creating new one")
+      startVoiceCommandListener()
+    } else {
+      Log.d(TAG, "Voice command listener already exists, restarting")
+    }
+    _uiState.update {
+      it.copy(
+          isVoiceCommandListening = true,
+          voiceCommandStatus = "Listening... speak now",
+          voiceTranscript = null,
+      )
+    }
+    voiceCommandListener?.restartListeningNow()
+    Log.i(TAG, "Voice listening restarted")
+  }
+
+  private fun stopVoiceCommandListener() {
+    voiceCommandListener?.stop()
+    voiceCommandListener = null
+    _uiState.update {
+      it.copy(isVoiceCommandListening = false, voiceCommandStatus = null, voiceTranscript = null)
+    }
+  }
+
+  private fun handleVoiceScanCommand() {
+    Log.i(TAG, "Voice scan command detected")
+    Log.i(
+        TAG,
+        "Document scan trigger state: stream=${_uiState.value.streamState}, isCapturing=${_uiState.value.isCapturing}, isAnalyzing=${_uiState.value.isDocumentAnalyzing}, matchedCustomer=${_uiState.value.matchedCustomer?.id ?: "none"}",
+    )
+    if (_uiState.value.isDocumentAnalyzing || _uiState.value.isCapturing) {
+      Log.d(TAG, "Document scan already in progress, ignoring voice command")
+      return
+    }
+    faceRecognitionJob?.cancel()
+    faceRecognitionJob = null
+    _uiState.update { it.copy(voiceCommandStatus = "Scan command detected") }
+    captureAndAnalyzeDocument()
+  }
+
+  fun scanDocument() {
+    Log.i(TAG, "Manual document scan requested")
+    if (_uiState.value.isDocumentAnalyzing || _uiState.value.isCapturing) {
+      Log.d(TAG, "Document scan already in progress, ignoring manual request")
+      return
+    }
+    faceRecognitionJob?.cancel()
+    faceRecognitionJob = null
+    _uiState.update { it.copy(voiceCommandStatus = "Manual scan requested") }
+    captureAndAnalyzeDocument()
+  }
+
+  private fun captureAndAnalyzeDocument() {
+    Log.i(TAG, "Document scan flow starting")
+    if (uiState.value.streamState != StreamState.STREAMING) {
+      Log.w(TAG, "Cannot scan document: stream not active (state=${uiState.value.streamState})")
+      _uiState.update { it.copy(voiceCommandStatus = "Start stream before scanning") }
+      return
+    }
+
+    if (!geminiService.isConfigured()) {
+      Log.w(TAG, "Skipping document scan because GEMINI_API_KEY is not configured")
+      _uiState.update {
+        it.copy(voiceCommandStatus = "Add GEMINI_API_KEY to scan documents")
+      }
+      return
+    }
+
+    val scanStartedAtMs = SystemClock.elapsedRealtime()
+    _uiState.update {
+      it.copy(
+          isCapturing = true,
+          isDocumentAnalyzing = true,
+          documentAnalysis = null,
+          voiceCommandStatus = "Capturing document",
+      )
+    }
+
+    viewModelScope.launch {
+      val captureStartedAtMs = SystemClock.elapsedRealtime()
+      Log.i(TAG, "Document photo capture requested")
+      stream
+          ?.capturePhoto()
+          ?.onSuccess { photoData ->
+            val captureDurationMs = SystemClock.elapsedRealtime() - captureStartedAtMs
+            Log.i(
+                TAG,
+                "Document photo capture successful: type=${photoData::class.java.simpleName}, durationMs=$captureDurationMs",
+            )
+            val documentBitmap = decodePhotoData(photoData)
+            Log.i(
+                TAG,
+                "Document bitmap decoded: ${documentBitmap.width}x${documentBitmap.height}, config=${documentBitmap.config}",
+            )
+            _uiState.update {
+              it.copy(isCapturing = false, voiceCommandStatus = "Analyzing document")
+            }
+
+            try {
+              val customer = _uiState.value.matchedCustomer
+              val analysisStartedAtMs = SystemClock.elapsedRealtime()
+              Log.i(
+                  TAG,
+                  "Starting document analysis with customer=${customer?.id ?: "none"}, bitmap=${documentBitmap.width}x${documentBitmap.height}",
+              )
+              val analysis =
+                  withContext(Dispatchers.IO) {
+                    geminiService.analyzeDocument(documentBitmap, customer)
+                  }
+              val analysisDurationMs = SystemClock.elapsedRealtime() - analysisStartedAtMs
+              val totalDurationMs = SystemClock.elapsedRealtime() - scanStartedAtMs
+              Log.i(
+                  TAG,
+                  "Document analysis completed: analysisDurationMs=$analysisDurationMs, totalScanDurationMs=$totalDurationMs, parsed=${analysis.json != null}, rawChars=${analysis.rawJson.length}",
+              )
+              _uiState.update {
+                it.copy(
+                    isDocumentAnalyzing = false,
+                    documentAnalysis = analysis,
+                    voiceCommandStatus = "Document analyzed",
+                )
+              }
+            } catch (e: Exception) {
+              val totalDurationMs = SystemClock.elapsedRealtime() - scanStartedAtMs
+              Log.w(
+                  TAG,
+                  "Document analysis failed after ${totalDurationMs}ms: ${e.javaClass.simpleName}: ${e.message}",
+                  e,
+              )
+              _uiState.update {
+                it.copy(
+                    isDocumentAnalyzing = false,
+                    voiceCommandStatus = e.message ?: "Document analysis failed",
+                )
+              }
+            }
+          }
+          ?.onFailure { error, _ ->
+            val totalDurationMs = SystemClock.elapsedRealtime() - scanStartedAtMs
+            Log.e(
+                TAG,
+                "Document photo capture failed after ${totalDurationMs}ms: ${error.description}",
+            )
+            _uiState.update {
+              it.copy(
+                  isCapturing = false,
+                  isDocumentAnalyzing = false,
+                  voiceCommandStatus = error.description,
+              )
+            }
+          }
+          ?: run {
+            Log.w(TAG, "Document photo capture skipped: stream is null")
+            _uiState.update {
+              it.copy(
+                  isCapturing = false,
+                  isDocumentAnalyzing = false,
+                  voiceCommandStatus = "Stream unavailable",
+              )
+            }
+          }
+    }
+  }
+
+  fun dismissDocumentAnalysis() {
+    _uiState.update { it.copy(documentAnalysis = null) }
+  }
+
   fun showShareDialog() {
     _uiState.update { it.copy(isShareDialogVisible = true) }
   }
@@ -400,9 +636,112 @@ class StreamViewModel(
     }
   }
 
+  private fun scheduleFaceRecognition(frameBitmap: Bitmap) {
+    if (_uiState.value.isDocumentAnalyzing || _uiState.value.isCapturing) return
+
+    val now = SystemClock.elapsedRealtime()
+    val recognitionIntervalMs =
+        if (_uiState.value.matchedCustomer != null) {
+          MATCHED_FACE_RECHECK_INTERVAL_MS
+        } else {
+          FACE_RECOGNITION_INTERVAL_MS
+        }
+    if (now - lastFaceRecognitionAtMs < recognitionIntervalMs) return
+    if (faceRecognitionJob?.isActive == true) return
+
+    val recognitionBitmap =
+        try {
+          frameBitmap.copy(frameBitmap.config ?: Bitmap.Config.ARGB_8888, false)
+        } catch (e: Exception) {
+          Log.w(TAG, "Unable to copy frame for face recognition", e)
+          return
+        }
+
+    lastFaceRecognitionAtMs = now
+    Log.i(TAG, "Starting face recognition from stream frame")
+    _uiState.update { state ->
+      if (state.matchedCustomer != null) {
+        state.copy(isFaceRecognitionRunning = true)
+      } else {
+        state.copy(isFaceRecognitionRunning = true, faceRecognitionStatus = "Scanning customer")
+      }
+    }
+
+    // TODO: Replace with Meta DAT Glasses camera stream once glasses hardware is swapped in.
+    faceRecognitionJob =
+        viewModelScope.launch(Dispatchers.IO) {
+          try {
+            when (val result = faceRecognitionService.detectAndMatchFace(recognitionBitmap)) {
+              is FaceRecognitionResult.Match -> {
+                Log.i(
+                    TAG,
+                    "Face recognition result: ${result.customer.id}, similarity=${result.similarity}",
+                )
+                _uiState.update { state ->
+                  val sameCustomer =
+                      state.matchedCustomer?.id.equals(result.customer.id, ignoreCase = true)
+                  if (sameCustomer) {
+                    state.copy(isFaceRecognitionRunning = false)
+                  } else {
+                    state.copy(
+                        matchedCustomer = result.customer,
+                        isFaceRecognitionRunning = false,
+                        faceRecognitionStatus = "Customer matched",
+                    )
+                  }
+                }
+              }
+              is FaceRecognitionResult.NoMatch -> {
+                Log.i(TAG, "Face recognition result: no match, best=${result.bestSimilarity}")
+                _uiState.update {
+                  it.copy(
+                      matchedCustomer = null,
+                      isFaceRecognitionRunning = false,
+                      faceRecognitionStatus = "Face not in customer DB",
+                  )
+                }
+              }
+              FaceRecognitionResult.NoFaceDetected -> {
+                Log.d(TAG, "Face recognition result: no face detected")
+                _uiState.update {
+                  it.copy(
+                      matchedCustomer = null,
+                      isFaceRecognitionRunning = false,
+                      faceRecognitionStatus = "No face detected",
+                  )
+                }
+              }
+              is FaceRecognitionResult.Unavailable -> {
+                Log.w(TAG, "Face recognition unavailable: ${result.reason}")
+                _uiState.update {
+                  it.copy(
+                      matchedCustomer = null,
+                      isFaceRecognitionRunning = false,
+                      faceRecognitionStatus = result.reason,
+                  )
+                }
+              }
+            }
+          } catch (e: Exception) {
+            Log.w(TAG, "Face recognition failed", e)
+            _uiState.update {
+              if (it.isDocumentAnalyzing || it.isCapturing) {
+                return@update it.copy(isFaceRecognitionRunning = false)
+              }
+              it.copy(
+                  isFaceRecognitionRunning = false,
+                  faceRecognitionStatus = e.message ?: "Face recognition failed",
+              )
+            }
+          } finally {
+            recognitionBitmap.recycle()
+          }
+        }
+  }
+
   private fun handleAudioFrame(audioFrame: AudioFrame) {
     // Audio frame received from the glasses microphone (via Bluetooth HFP).
-    viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+    viewModelScope.launch(Dispatchers.Main) {
       _uiState.update { it.copy(audioFrameCount = it.audioFrameCount + 1) }
     }
 
@@ -422,21 +761,23 @@ class StreamViewModel(
   }
 
   private fun handlePhotoData(photo: PhotoData) {
-    val capturedPhoto =
-        when (photo) {
-          is PhotoData.Bitmap -> photo.bitmap
-          is PhotoData.HEIC -> {
-            val byteArray = ByteArray(photo.data.remaining())
-            photo.data.get(byteArray)
-
-            // Extract EXIF transformation matrix and apply to bitmap
-            val exifInfo = getExifInfo(byteArray)
-            val transform = getTransform(exifInfo)
-            decodeHeic(byteArray, transform)
-          }
-        }
+    val capturedPhoto = decodePhotoData(photo)
     _uiState.update { it.copy(capturedPhoto = capturedPhoto, isShareDialogVisible = true) }
   }
+
+  private fun decodePhotoData(photo: PhotoData): Bitmap =
+      when (photo) {
+        is PhotoData.Bitmap -> photo.bitmap
+        is PhotoData.HEIC -> {
+          val byteArray = ByteArray(photo.data.remaining())
+          photo.data.get(byteArray)
+
+          // Extract EXIF transformation matrix and apply to bitmap
+          val exifInfo = getExifInfo(byteArray)
+          val transform = getTransform(exifInfo)
+          decodeHeic(byteArray, transform)
+        }
+      }
 
   // HEIC Decoding with EXIF transformation
   private fun decodeHeic(heicBytes: ByteArray, transform: Matrix): Bitmap {

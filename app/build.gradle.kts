@@ -6,11 +6,23 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+import java.util.Properties
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.jetbrains.kotlin.android)
   alias(libs.plugins.compose.compiler)
 }
+
+val localProperties =
+    Properties().apply {
+      val localPropertiesFile = rootProject.file("local.properties")
+      if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use(::load)
+      }
+    }
+val geminiApiKey =
+    localProperties.getProperty("GEMINI_API_KEY", "").replace("\\", "\\\\").replace("\"", "\\\"")
 
 android {
   namespace = "com.meta.wearable.dat.externalsampleapps.cameraaccess"
@@ -27,6 +39,11 @@ android {
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     vectorDrawables { useSupportLibrary = true }
+    buildConfigField(
+        "String",
+        "GEMINI_API_KEY",
+        "\"$geminiApiKey\"",
+    )
 
     // Meta Wearables Device Access Toolkit Setup
     // Without Developer Mode, these values need to be set with credentials from the app registered
@@ -48,7 +65,6 @@ android {
   }
   kotlinOptions { jvmTarget = "1.8" }
   buildFeatures { compose = true }
-  composeOptions { kotlinCompilerExtensionVersion = "1.5.1" }
   packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
   signingConfigs {
     getByName("debug") {
@@ -69,9 +85,14 @@ dependencies {
   implementation(libs.androidx.material.icons.extended)
   implementation(libs.androidx.material3)
   implementation(libs.kotlinx.collections.immutable)
+  implementation(libs.mlkit.face.detection)
   implementation(libs.mwdat.core)
   implementation(libs.mwdat.camera)
   implementation(libs.mwdat.mockdevice)
+  implementation(libs.tensorflow.lite)
+  implementation("com.squareup.okhttp3:okhttp:4.12.0")
+  implementation("com.google.code.gson:gson:2.11.0")
+  implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.0")
   androidTestImplementation(libs.androidx.ui.test.junit4)
   androidTestImplementation(libs.androidx.test.uiautomator)
   androidTestImplementation(libs.androidx.test.rules)

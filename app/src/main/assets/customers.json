@@ -1,0 +1,140 @@
+{
+  "customers": [
+    {
+      "id": "CUST001",
+      "name": "Rahul",
+      "phone": "9876543210",
+      "profile": "High-value salaried customer exploring a premium home loan, wealth advisory, and priority banking upgrade. Prefers quick summaries, low paperwork, and clear EMI comparisons.",
+      "faceImage": "rahul_face.jpg",
+      "lastVisit": "2026-06-10",
+      "accounts": [
+        {
+          "accountNumber": "XXXX-1024",
+          "type": "Premium Savings",
+          "balance": "INR 18,45,000",
+          "status": "Active"
+        },
+        {
+          "accountNumber": "XXXX-7712",
+          "type": "Fixed Deposit",
+          "balance": "INR 7,50,000",
+          "status": "Matures on 2026-09-18"
+        }
+      ],
+      "history": [
+        {
+          "date": "2026-06-10",
+          "type": "Branch visit",
+          "notes": "Discussed home loan eligibility for INR 85 lakh property, premium banking upgrade, and salary account benefits. Asked for a side-by-side EMI estimate for 15 and 20 year tenure."
+        },
+        {
+          "date": "2026-05-28",
+          "type": "Relationship call",
+          "notes": "Requested pre-approved loan limits, processing fee waiver options, and document checklist for income proof and property papers."
+        }
+      ]
+    },
+    {
+      "id": "CUST002",
+      "name": "Elon Musk",
+      "phone": "9988776655",
+      "profile": "Ultra high-net-worth entrepreneur customer with treasury, investment, and liquidity management needs. Requires discreet service, rapid approvals, and consolidated portfolio snapshots.",
+      "faceImage": "musk_face.jpg",
+      "lastVisit": "2026-06-04",
+      "accounts": [
+        {
+          "accountNumber": "XXXX-2048",
+          "type": "Private Banking Current",
+          "balance": "INR 42,10,50,000",
+          "status": "Active"
+        },
+        {
+          "accountNumber": "XXXX-8821",
+          "type": "Investment Portfolio",
+          "balance": "INR 8,75,00,000",
+          "status": "Advisory review due"
+        }
+      ],
+      "history": [
+        {
+          "date": "2026-06-04",
+          "type": "Private banking review",
+          "notes": "Asked for liquidity planning across operating accounts, short-term debt instruments, and tax-efficient investment options."
+        },
+        {
+          "date": "2026-05-21",
+          "type": "Treasury discussion",
+          "notes": "Requested faster approval workflow for large transfers and a single-page risk summary before market close."
+        }
+      ]
+    },
+    {
+      "id": "CUST003",
+      "name": "Shria Sannuthi",
+      "phone": "993472687",
+      "profile": "SME owner evaluating working capital renewal, overdraft enhancement, and vendor payment automation. Prefers practical guidance and document-ready next steps.",
+      "faceImage": "shria_face.png",
+      "lastVisit": "2026-06-04",
+      "accounts": [
+        {
+          "accountNumber": "XXXX-2048",
+          "type": "Current",
+          "balance": "INR 42,10,500",
+          "status": "Active"
+        },
+        {
+          "accountNumber": "XXXX-3478",
+          "type": "Overdraft",
+          "balance": "Limit INR 25,00,000",
+          "status": "Renewal due in 45 days"
+        }
+      ],
+      "history": [
+        {
+          "date": "2026-06-04",
+          "type": "Relationship call",
+          "notes": "Requested document checklist for working capital renewal, GST statement review, and projected cash-flow format."
+        },
+        {
+          "date": "2026-05-17",
+          "type": "Branch visit",
+          "notes": "Discussed vendor payment delays, receivables cycle, and option to increase overdraft limit before seasonal inventory purchase."
+        }
+      ]
+    },
+    {
+      "id": "CUST004",
+      "name": "Trump",
+      "phone": "993472687",
+      "profile": "High-profile customer with large real-estate, hospitality, and campaign-related banking needs. Requires enhanced due diligence, senior relationship handling, and careful compliance review.",
+      "faceImage": "trump_face.jpg",
+      "lastVisit": "2026-06-04",
+      "accounts": [
+        {
+          "accountNumber": "XXXX-2048",
+          "type": "Current",
+          "balance": "INR 3,42,10,500",
+          "status": "Active - enhanced monitoring"
+        },
+        {
+          "accountNumber": "XXXX-9090",
+          "type": "Term Loan",
+          "balance": "Outstanding INR 12,80,00,000",
+          "status": "Quarterly review pending"
+        }
+      ],
+      "history": [
+        {
+          "date": "2026-06-04",
+          "type": "Relationship review",
+          "notes": "Requested consolidated view of loan exposure, collateral status, and upcoming repayment schedule for real-estate linked facilities."
+        },
+        {
+          "date": "2026-05-19",
+          "type": "Compliance note",
+          "notes": "Flagged for senior approval workflow before new credit sanction or high-value outward remittance."
+        }
+      ]
+    }
+  ]
+}
