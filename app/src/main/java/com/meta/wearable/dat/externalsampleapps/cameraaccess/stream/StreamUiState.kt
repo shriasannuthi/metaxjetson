@@ -31,6 +31,7 @@ data class StreamUiState(
     val faceRecognitionStatus: String? = null,
     val isVoiceCommandListening: Boolean = false,
     val voiceCommandStatus: String? = null,
+    val voiceTranscript: String? = null,
     val isDocumentAnalyzing: Boolean = false,
     val documentAnalysis: DocumentAnalysisResult? = null,
 )

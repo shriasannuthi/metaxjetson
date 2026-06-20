@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DocumentScanner
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -58,6 +59,17 @@ fun ScanDocumentButton(onClick: () -> Unit) {
     Icon(
         imageVector = Icons.Filled.DocumentScanner,
         contentDescription = "Scan document",
+        tint = Color.Black,
+    )
+  }
+}
+
+@Composable
+fun VoiceTestButton(onClick: () -> Unit) {
+  CircleButton(onClick = onClick) {
+    Icon(
+        imageVector = Icons.Filled.Mic,
+        contentDescription = "Test voice input",
         tint = Color.Black,
     )
   }

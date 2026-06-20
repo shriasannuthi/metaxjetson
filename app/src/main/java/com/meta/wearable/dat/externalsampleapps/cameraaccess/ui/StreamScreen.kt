@@ -113,6 +113,7 @@ fun StreamScreen(
         isListening = streamUiState.isVoiceCommandListening,
         isAnalyzing = streamUiState.isDocumentAnalyzing,
         status = streamUiState.voiceCommandStatus,
+        transcript = streamUiState.voiceTranscript,
         modifier =
             Modifier.align(Alignment.TopStart)
                 .padding(
@@ -184,6 +185,10 @@ fun StreamScreen(
             onClick = { streamViewModel.capturePhoto() },
         )
 
+        VoiceTestButton(
+            onClick = { streamViewModel.listenForVoiceTest() },
+        )
+
         ScanDocumentButton(
             onClick = { streamViewModel.scanDocument() },
         )
@@ -223,32 +228,44 @@ private fun VoiceCommandOverlay(
     isListening: Boolean,
     isAnalyzing: Boolean,
     status: String?,
+    transcript: String?,
     modifier: Modifier = Modifier,
 ) {
-  if (!isListening && status.isNullOrBlank() && !isAnalyzing) return
+  if (!isListening && status.isNullOrBlank() && transcript.isNullOrBlank() && !isAnalyzing) return
 
   Box(
       modifier =
           modifier
-              .fillMaxWidth(0.62f)
+              .fillMaxWidth(0.78f)
               .background(Color.Black.copy(alpha = 0.58f), shape = RoundedCornerShape(8.dp))
               .padding(8.dp)
   ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-      Icon(
-          imageVector = Icons.Default.Mic,
-          contentDescription = "Voice command",
-          tint = if (isAnalyzing) AppColor.Yellow else AppColor.Green,
-          modifier = Modifier.size(16.dp),
-      )
-      Spacer(modifier = Modifier.width(6.dp))
-      Text(
-          text = status ?: "Listening",
-          color = Color.White,
-          style = MaterialTheme.typography.labelSmall,
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
-      )
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = Icons.Default.Mic,
+            contentDescription = "Voice command",
+            tint = if (isAnalyzing) AppColor.Yellow else AppColor.Green,
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = status ?: "Listening",
+            color = Color.White,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+      }
+      transcript?.takeIf { it.isNotBlank() }?.let {
+        Text(
+            text = "Transcript: $it",
+            color = Color.White.copy(alpha = 0.82f),
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+      }
     }
   }
 }
@@ -391,19 +408,46 @@ private fun CustomerRecognitionOverlay(
 
       if (customer != null) {
         Text(
+            text = "${customer.id} - ${customer.phone}",
+            color = Color.White.copy(alpha = 0.82f),
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
             text = customer.profile,
             color = Color.White.copy(alpha = 0.88f),
             style = MaterialTheme.typography.bodySmall,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-        Text(
-            text = "Last visit: ${customer.lastVisit}",
-            color = Color.White.copy(alpha = 0.72f),
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        customer.accounts.firstOrNull()?.let { account ->
+          CustomerInfoRow(
+              label = "Account",
+              value =
+                  listOf(account.type, account.accountNumber)
+                      .filter { it.isNotBlank() }
+                      .joinToString(" - "),
+          )
+          CustomerInfoRow(
+              label = "Balance",
+              value =
+                  listOf(account.balance, account.status)
+                      .filter { it.isNotBlank() }
+                      .joinToString(" - "),
+          )
+        }
+        CustomerInfoRow(label = "Last visit", value = customer.lastVisit)
+        customer.history.firstOrNull()?.let { history ->
+          CustomerInfoRow(
+              label = history.type.ifBlank { "History" },
+              value =
+                  listOf(history.date, history.notes)
+                      .filter { it.isNotBlank() }
+                      .joinToString(" - "),
+              maxLines = 2,
+          )
+        }
       } else if (isScanning) {
         Row(verticalAlignment = Alignment.CenterVertically) {
           CircularProgressIndicator(
@@ -422,6 +466,37 @@ private fun CustomerRecognitionOverlay(
         }
       }
     }
+  }
+}
+
+@Composable
+private fun CustomerInfoRow(
+    label: String,
+    value: String,
+    maxLines: Int = 1,
+) {
+  if (value.isBlank()) return
+
+  Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(6.dp),
+  ) {
+    Text(
+        text = "$label:",
+        color = AppColor.Yellow,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+    Text(
+        text = value,
+        color = Color.White.copy(alpha = 0.82f),
+        style = MaterialTheme.typography.labelSmall,
+        maxLines = maxLines,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.weight(1f),
+    )
   }
 }
 

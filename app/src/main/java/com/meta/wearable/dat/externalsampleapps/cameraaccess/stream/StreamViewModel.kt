@@ -45,6 +45,8 @@ import com.meta.wearable.dat.core.session.DeviceSession
 import com.meta.wearable.dat.core.session.DeviceSessionState
 import com.meta.wearable.dat.core.types.DeviceSessionError
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.R
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.FaceRecognitionResult
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.FaceRecognitionService
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.GeminiService
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.wearables.WearablesViewModel
 import java.io.ByteArrayInputStream
@@ -71,13 +73,15 @@ class StreamViewModel(
     private const val TAG = "CameraAccess:StreamViewModel"
     private val INITIAL_STATE = StreamUiState()
     private val SESSION_TERMINAL_STATES = setOf(StreamState.CLOSED)
-    private const val FACE_RECOGNITION_INTERVAL_MS = 5_000L
+    private const val FACE_RECOGNITION_INTERVAL_MS = 1_500L
+    private const val MATCHED_FACE_RECHECK_INTERVAL_MS = 6_000L
     private const val VOICE_SCAN_COMMAND = "hey meta scan"
     private const val ENABLE_RAW_AUDIO_RECORDING = false
   }
 
   private val deviceSelector: DeviceSelector = wearablesViewModel.deviceSelector
   private val geminiService: GeminiService = GeminiService(application)
+  private val faceRecognitionService: FaceRecognitionService = FaceRecognitionService(application)
   private var session: DeviceSession? = null
 
   private val _uiState = MutableStateFlow(INITIAL_STATE)
@@ -379,28 +383,60 @@ class StreamViewModel(
   }
 
   private fun startVoiceCommandListener() {
-    if (voiceCommandListener != null) return
+    if (voiceCommandListener != null) {
+      Log.d(TAG, "Voice command listener already started")
+      return
+    }
 
     voiceCommandListener =
         VoiceCommandListener(
             context = getApplication<Application>(),
             command = VOICE_SCAN_COMMAND,
             onCommandDetected = { handleVoiceScanCommand() },
+            onSpeechRecognized = { transcript ->
+              Log.d(TAG, "Speech recognized: $transcript")
+              _uiState.update {
+                it.copy(
+                    voiceTranscript = transcript,
+                    voiceCommandStatus = "Heard: $transcript",
+                )
+              }
+            },
         )
     voiceCommandListener?.start()
     _uiState.update {
       it.copy(
           isVoiceCommandListening = true,
-          voiceCommandStatus = "Listening for Hey Meta, Scan",
+          voiceCommandStatus = "Listening for 'Hey Meta Scan'",
       )
     }
+    Log.i(TAG, "Voice command listener started")
+  }
+
+  fun listenForVoiceTest() {
+    Log.i(TAG, "Manual voice test requested")
+    if (voiceCommandListener == null) {
+      Log.d(TAG, "Voice command listener not initialized, creating new one")
+      startVoiceCommandListener()
+    } else {
+      Log.d(TAG, "Voice command listener already exists, restarting")
+    }
+    _uiState.update {
+      it.copy(
+          isVoiceCommandListening = true,
+          voiceCommandStatus = "Listening... speak now",
+          voiceTranscript = null,
+      )
+    }
+    voiceCommandListener?.restartListeningNow()
+    Log.i(TAG, "Voice listening restarted")
   }
 
   private fun stopVoiceCommandListener() {
     voiceCommandListener?.stop()
     voiceCommandListener = null
     _uiState.update {
-      it.copy(isVoiceCommandListening = false, voiceCommandStatus = null)
+      it.copy(isVoiceCommandListening = false, voiceCommandStatus = null, voiceTranscript = null)
     }
   }
 
@@ -604,17 +640,14 @@ class StreamViewModel(
     if (_uiState.value.isDocumentAnalyzing || _uiState.value.isCapturing) return
 
     val now = SystemClock.elapsedRealtime()
-    if (now - lastFaceRecognitionAtMs < FACE_RECOGNITION_INTERVAL_MS) return
+    val recognitionIntervalMs =
+        if (_uiState.value.matchedCustomer != null) {
+          MATCHED_FACE_RECHECK_INTERVAL_MS
+        } else {
+          FACE_RECOGNITION_INTERVAL_MS
+        }
+    if (now - lastFaceRecognitionAtMs < recognitionIntervalMs) return
     if (faceRecognitionJob?.isActive == true) return
-
-    if (!geminiService.isConfigured()) {
-      lastFaceRecognitionAtMs = now
-      Log.w(TAG, "Skipping face recognition because GEMINI_API_KEY is not configured")
-      _uiState.update {
-        it.copy(faceRecognitionStatus = "Add GEMINI_API_KEY to enable face recognition")
-      }
-      return
-    }
 
     val recognitionBitmap =
         try {
@@ -626,28 +659,67 @@ class StreamViewModel(
 
     lastFaceRecognitionAtMs = now
     Log.i(TAG, "Starting face recognition from stream frame")
-    _uiState.update {
-      it.copy(isFaceRecognitionRunning = true, faceRecognitionStatus = "Scanning customer")
+    _uiState.update { state ->
+      if (state.matchedCustomer != null) {
+        state.copy(isFaceRecognitionRunning = true)
+      } else {
+        state.copy(isFaceRecognitionRunning = true, faceRecognitionStatus = "Scanning customer")
+      }
     }
 
     // TODO: Replace with Meta DAT Glasses camera stream once glasses hardware is swapped in.
     faceRecognitionJob =
         viewModelScope.launch(Dispatchers.IO) {
           try {
-            val matchedCustomer = geminiService.detectAndMatchFace(recognitionBitmap)
-            Log.i(TAG, "Face recognition result: ${matchedCustomer?.id ?: "no match"}")
-            _uiState.update {
-              if (matchedCustomer != null) {
-                it.copy(
-                    matchedCustomer = matchedCustomer,
-                    isFaceRecognitionRunning = false,
-                    faceRecognitionStatus = "Customer matched",
+            when (val result = faceRecognitionService.detectAndMatchFace(recognitionBitmap)) {
+              is FaceRecognitionResult.Match -> {
+                Log.i(
+                    TAG,
+                    "Face recognition result: ${result.customer.id}, similarity=${result.similarity}",
                 )
-              } else {
-                it.copy(
-                    isFaceRecognitionRunning = false,
-                    faceRecognitionStatus = "No customer match",
-                )
+                _uiState.update { state ->
+                  val sameCustomer =
+                      state.matchedCustomer?.id.equals(result.customer.id, ignoreCase = true)
+                  if (sameCustomer) {
+                    state.copy(isFaceRecognitionRunning = false)
+                  } else {
+                    state.copy(
+                        matchedCustomer = result.customer,
+                        isFaceRecognitionRunning = false,
+                        faceRecognitionStatus = "Customer matched",
+                    )
+                  }
+                }
+              }
+              is FaceRecognitionResult.NoMatch -> {
+                Log.i(TAG, "Face recognition result: no match, best=${result.bestSimilarity}")
+                _uiState.update {
+                  it.copy(
+                      matchedCustomer = null,
+                      isFaceRecognitionRunning = false,
+                      faceRecognitionStatus = "Face not in customer DB",
+                  )
+                }
+              }
+              FaceRecognitionResult.NoFaceDetected -> {
+                Log.d(TAG, "Face recognition result: no face detected")
+                _uiState.update {
+                  it.copy(
+                      matchedCustomer = null,
+                      isFaceRecognitionRunning = false,
+                      faceRecognitionStatus = "No face detected",
+                  )
+                }
+              }
+              is FaceRecognitionResult.Unavailable -> {
+                Log.w(TAG, "Face recognition unavailable: ${result.reason}")
+                _uiState.update {
+                  it.copy(
+                      matchedCustomer = null,
+                      isFaceRecognitionRunning = false,
+                      faceRecognitionStatus = result.reason,
+                  )
+                }
               }
             }
           } catch (e: Exception) {
