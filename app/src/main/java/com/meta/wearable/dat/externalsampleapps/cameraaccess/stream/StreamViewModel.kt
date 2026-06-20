@@ -76,6 +76,7 @@ class StreamViewModel(
     private const val MATCHED_FACE_RECHECK_INTERVAL_MS = 6_000L
     private const val VOICE_SCAN_COMMAND = "hey meta scan"
     private const val ENABLE_RAW_AUDIO_RECORDING = false
+    private const val MAX_PARTIAL_RESPONSE_CHARS = 900
   }
 
   private val deviceSelector: DeviceSelector = wearablesViewModel.deviceSelector
@@ -279,6 +280,7 @@ class StreamViewModel(
           isFaceRecognitionRunning = false,
           isVoiceCommandListening = false,
           isDocumentAnalyzing = false,
+          documentAnalysisPartial = null,
       )
     }
     stream?.stop()
@@ -497,6 +499,7 @@ class StreamViewModel(
     _uiState.update {
       it.copy(
           isDocumentAnalyzing = true,
+          documentAnalysisPartial = null,
           documentAnalysis = null,
           voiceCommandStatus = "Analyzing document",
       )
@@ -509,7 +512,12 @@ class StreamViewModel(
             TAG,
             "Starting document analysis from stream snapshot: bitmap=${documentBitmap.width}x${documentBitmap.height}",
         )
-        val analysis = geminiService.analyzeDocument(documentBitmap)
+        val analysis =
+            geminiService.analyzeDocument(documentBitmap) { partialText ->
+              _uiState.update { state ->
+                state.copy(documentAnalysisPartial = partialText.take(MAX_PARTIAL_RESPONSE_CHARS))
+              }
+            }
         val analysisDurationMs = SystemClock.elapsedRealtime() - analysisStartedAtMs
         val totalDurationMs = SystemClock.elapsedRealtime() - scanStartedAtMs
         Log.i(
@@ -519,6 +527,7 @@ class StreamViewModel(
         _uiState.update {
           it.copy(
               isDocumentAnalyzing = false,
+              documentAnalysisPartial = null,
               documentAnalysis = analysis,
               voiceCommandStatus = "Document analyzed",
           )
@@ -533,6 +542,7 @@ class StreamViewModel(
         _uiState.update {
           it.copy(
               isDocumentAnalyzing = false,
+              documentAnalysisPartial = null,
               voiceCommandStatus = e.message ?: "Document analysis failed",
           )
         }

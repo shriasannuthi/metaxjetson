@@ -15,6 +15,7 @@ import android.util.Base64
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonArray
+import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.BuildConfig
@@ -36,7 +37,11 @@ class GeminiService(
 ) {
   fun isConfigured(): Boolean = apiKey.isNotBlank() && apiKey != PLACEHOLDER_API_KEY
 
-  suspend fun postToGemini(prompt: String, images: List<Bitmap> = emptyList()): String =
+  suspend fun postToGemini(
+      prompt: String,
+      images: List<Bitmap> = emptyList(),
+      onPartialText: (String) -> Unit = {},
+  ): String =
     withContext(Dispatchers.IO) {
       if (!isConfigured()) {
         throw GeminiException("GEMINI_API_KEY is not configured in local.properties.")
@@ -45,34 +50,46 @@ class GeminiService(
       val startedAtMs = SystemClock.elapsedRealtime()
       val request =
           Request.Builder()
-              .url("$GEMINI_ENDPOINT?key=$apiKey")
+              .url("$GEMINI_ENDPOINT?alt=sse&key=$apiKey")
               .post(buildRequestBody(prompt, images).toRequestBody(JSON_MEDIA_TYPE))
               .build()
 
       Log.d(TAG, "Posting Gemini request with ${images.size} image(s)")
       httpClient.newCall(request).execute().use { response ->
-        val responseBody = response.body?.string().orEmpty()
         val durationMs = SystemClock.elapsedRealtime() - startedAtMs
         Log.d(
             TAG,
-            "Gemini response received: http=${response.code}, durationMs=$durationMs, bodyChars=${responseBody.length}",
+            "Gemini response started: http=${response.code}, durationMs=$durationMs",
         )
         if (!response.isSuccessful) {
-          throw GeminiException("Gemini request failed: HTTP ${response.code}", responseBody)
+          val responseBody = response.body?.string().orEmpty()
+          Log.w(TAG, "Gemini request failed: HTTP ${response.code}, body=${responseBody.take(MAX_LOG_RESPONSE_CHARS)}")
+          throw GeminiException(
+              "Gemini request failed: HTTP ${response.code}. ${responseBody.toGeminiErrorSummary()}",
+              responseBody,
+          )
         }
 
-        parseStreamingText(responseBody).ifBlank {
-          throw GeminiException("Gemini returned an empty response.", responseBody)
+        streamTextFromResponse(response, onPartialText).ifBlank {
+          throw GeminiException("Gemini returned an empty response.")
         }
       }
     }
 
-  suspend fun analyzeDocument(documentBitmap: Bitmap): DocumentAnalysisResult {
+  suspend fun analyzeDocument(
+      documentBitmap: Bitmap,
+      onPartialText: (String) -> Unit = {},
+  ): DocumentAnalysisResult {
     Log.i(
         TAG,
         "Document analysis request: bitmap=${documentBitmap.width}x${documentBitmap.height}",
     )
-    val responseJson = postToGemini(buildDocumentAnalysisPrompt(), listOf(documentBitmap))
+    val responseJson =
+        postToGemini(
+            buildDocumentAnalysisPrompt(),
+            listOf(documentBitmap),
+            onPartialText = onPartialText,
+        )
     val parsed = parseJsonOnly(responseJson)
     Log.i(
         TAG,
@@ -117,36 +134,43 @@ class GeminiService(
           add(
               "generationConfig",
               JsonObject().apply {
-                add(
-                    "thinkingConfig",
-                    JsonObject().apply { addProperty("thinkingLevel", "HIGH") },
-                )
+                addProperty("candidateCount", 1)
+                addProperty("maxOutputTokens", MAX_OUTPUT_TOKENS)
+                addProperty("temperature", RESPONSE_TEMPERATURE)
+                addProperty("mediaResolution", MEDIA_RESOLUTION)
+                addProperty("responseMimeType", "application/json")
+                add("responseSchema", documentAnalysisSchema())
               },
           )
         }
     )
   }
 
-  private fun parseStreamingText(responseBody: String): String {
-    val trimmed = responseBody.trim()
-    if (trimmed.isEmpty()) return ""
+  private fun streamTextFromResponse(
+      response: okhttp3.Response,
+      onPartialText: (String) -> Unit,
+  ): String {
+    val responseBody = response.body ?: return ""
+    val source = responseBody.source()
+    val accumulated = StringBuilder()
+    while (!source.exhausted()) {
+      val line = source.readUtf8Line() ?: continue
+      val trimmedLine = line.removePrefix("data:").trim()
+      if (trimmedLine.isEmpty() || trimmedLine == "[DONE]") continue
 
-    val chunks =
-        when {
-          trimmed.startsWith("[") -> JsonParser.parseString(trimmed).asJsonArray.toList()
-          trimmed.startsWith("{") -> listOf(JsonParser.parseString(trimmed))
-          else ->
-              trimmed
-                  .lineSequence()
-                  .map { it.removePrefix("data:").trim() }
-                  .filter { it.isNotEmpty() && it != "[DONE]" }
-                  .mapNotNull { runCatching { JsonParser.parseString(it) }.getOrNull() }
-                  .toList()
-        }
+      val chunk = runCatching { JsonParser.parseString(trimmedLine) }.getOrNull() ?: continue
+      val text = chunk.extractText()
+      if (text.isNotBlank()) {
+        accumulated.append(text)
+        onPartialText(accumulated.toString())
+      }
+    }
+    return accumulated.toString().trim()
+  }
 
-    return buildString {
-      chunks.forEach chunkLoop@{ chunk ->
-        val candidates = chunk.asJsonObject.getAsJsonArray("candidates") ?: return@chunkLoop
+  private fun JsonElement.extractText(): String =
+      buildString {
+        val candidates = asJsonObject.getAsJsonArray("candidates") ?: return@buildString
         candidates.forEach candidateLoop@{ candidate ->
           val parts =
               candidate
@@ -159,25 +183,72 @@ class GeminiService(
           }
         }
       }
-    }.trim()
-  }
 
   private fun buildDocumentAnalysisPrompt(): String {
     return """
-      You are a document explanation assistant. Analyze the image from the smart glasses stream.
-      Perform OCR when text is visible, identify the type of document or object shown, and explain the important details clearly.
-
-      Respond with valid JSON only using this schema:
-      {
-        "documentType": "string",
-        "extractedFields": {},
-        "summary": "string",
-        "explanation": "string",
-        "riskFlags": [],
-        "recommendedActions": []
-      }
-      Keep extractedFields as key-value pairs. Use empty arrays when there are no flags or actions.
+      Analyze this smart-glasses snapshot quickly.
+      If text is visible, read the key text. Identify what is shown, summarize it, explain the important details, and suggest immediate next actions.
+      Return extractedFields as short "label: value" strings.
+      Keep the response concise. Use empty arrays when there are no risk flags or actions.
     """.trimIndent()
+  }
+
+  private fun documentAnalysisSchema(): JsonObject =
+      JsonObject().apply {
+        addProperty("type", "OBJECT")
+        add(
+            "properties",
+            JsonObject().apply {
+              add("documentType", JsonObject().apply { addProperty("type", "STRING") })
+              add(
+                  "extractedFields",
+                  JsonObject().apply {
+                    addProperty("type", "ARRAY")
+                    add("items", JsonObject().apply { addProperty("type", "STRING") })
+                  },
+              )
+              add("summary", JsonObject().apply { addProperty("type", "STRING") })
+              add("explanation", JsonObject().apply { addProperty("type", "STRING") })
+              add(
+                  "riskFlags",
+                  JsonObject().apply {
+                    addProperty("type", "ARRAY")
+                    add("items", JsonObject().apply { addProperty("type", "STRING") })
+                  },
+              )
+              add(
+                  "recommendedActions",
+                  JsonObject().apply {
+                    addProperty("type", "ARRAY")
+                    add("items", JsonObject().apply { addProperty("type", "STRING") })
+                  },
+              )
+            },
+        )
+        add(
+            "required",
+            JsonArray().apply {
+              add("documentType")
+              add("extractedFields")
+              add("summary")
+              add("explanation")
+              add("riskFlags")
+              add("recommendedActions")
+            },
+        )
+      }
+
+  private fun String.toGeminiErrorSummary(): String {
+    val parsedMessage =
+        runCatching {
+              JsonParser.parseString(this)
+                  .asJsonObject
+                  .getAsJsonObject("error")
+                  ?.get("message")
+                  ?.asString
+            }
+            .getOrNull()
+    return parsedMessage ?: take(MAX_LOG_RESPONSE_CHARS)
   }
 
   private fun parseJsonOnly(text: String): JsonObject? {
@@ -215,12 +286,15 @@ class GeminiService(
 
   companion object {
     private const val TAG = "CameraAccess:GeminiService"
-    private const val MODEL_ID = "gemma-4-26b-a4b-it"
+    private const val MODEL_ID = "gemini-3.1-flash-lite"
     private const val GEMINI_ENDPOINT =
         "https://generativelanguage.googleapis.com/v1beta/models/$MODEL_ID:streamGenerateContent"
     private const val PLACEHOLDER_API_KEY = "your_actual_key_here"
-    private const val JPEG_QUALITY = 78
-    private const val MAX_IMAGE_SIDE_PX = 1024
+    private const val JPEG_QUALITY = 65
+    private const val MAX_IMAGE_SIDE_PX = 768
+    private const val MAX_OUTPUT_TOKENS = 350
+    private const val RESPONSE_TEMPERATURE = 0.2
+    private const val MEDIA_RESOLUTION = "MEDIA_RESOLUTION_LOW"
     private const val MAX_LOG_RESPONSE_CHARS = 500
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     private val DEFAULT_HTTP_CLIENT =
