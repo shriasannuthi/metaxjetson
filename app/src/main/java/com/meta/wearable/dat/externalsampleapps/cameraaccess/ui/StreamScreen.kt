@@ -41,10 +41,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.foundation.clickable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.AssistantViewModel
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.AssistantMode
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -81,6 +87,22 @@ fun StreamScreen(
 ) {
   val streamUiState by streamViewModel.uiState.collectAsStateWithLifecycle()
 
+  val assistantViewModel: AssistantViewModel =
+      viewModel(
+          factory =
+              AssistantViewModel.Factory(
+                  application = (LocalActivity.current as ComponentActivity).application
+              )
+      )
+  val assistantUiState by assistantViewModel.uiState.collectAsStateWithLifecycle()
+  var isAssistantVisible by remember { mutableStateOf(false) }
+
+  LaunchedEffect(streamUiState.matchedCustomer) {
+    streamUiState.matchedCustomer?.let { customer ->
+      assistantViewModel.selectCustomer(customer)
+    }
+  }
+
   LaunchedEffect(Unit) { streamViewModel.startStream() }
 
   Box(modifier = modifier.fillMaxSize()) {
@@ -107,6 +129,7 @@ fun StreamScreen(
         isScanning = streamUiState.isFaceRecognitionRunning,
         status = streamUiState.faceRecognitionStatus,
         modifier = Modifier.align(Alignment.TopEnd).padding(top = 80.dp, end = 24.dp),
+        onShowAssistant = { isAssistantVisible = true },
     )
 
     VoiceCommandOverlay(
@@ -193,6 +216,23 @@ fun StreamScreen(
             onClick = { streamViewModel.scanDocument() },
         )
       }
+    }
+
+    if (isAssistantVisible) {
+      AssistantPanel(
+          state = assistantUiState,
+          onDismiss = { isAssistantVisible = false },
+          onModeChanged = { mode -> assistantViewModel.setMode(mode) },
+          onCustomerChanged = {
+            val currentIndex = assistantUiState.customers.indexOfFirst { it.id == assistantUiState.customer?.id }
+            if (currentIndex >= 0 && assistantUiState.customers.isNotEmpty()) {
+              val nextIndex = (currentIndex + 1) % assistantUiState.customers.size
+              assistantViewModel.selectCustomer(assistantUiState.customers[nextIndex])
+            }
+          },
+          onAsk = { question -> assistantViewModel.ask(question) },
+          onEndSession = { assistantViewModel.endSession() },
+      )
     }
   }
 
@@ -376,6 +416,7 @@ private fun CustomerRecognitionOverlay(
     customer: Customer?,
     isScanning: Boolean,
     status: String?,
+    onShowAssistant: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
   if (customer == null && status.isNullOrBlank() && !isScanning) return
@@ -385,6 +426,7 @@ private fun CustomerRecognitionOverlay(
           modifier
               .fillMaxWidth(0.78f)
               .background(Color.Black.copy(alpha = 0.68f), shape = RoundedCornerShape(8.dp))
+              .clickable(enabled = customer != null) { onShowAssistant() }
               .padding(12.dp)
   ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -448,6 +490,13 @@ private fun CustomerRecognitionOverlay(
               maxLines = 2,
           )
         }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Tap to chat with Assistant",
+            color = AppColor.Yellow,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+        )
       } else if (isScanning) {
         Row(verticalAlignment = Alignment.CenterVertically) {
           CircularProgressIndicator(

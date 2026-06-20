@@ -20,7 +20,9 @@ data class Customer(
   val faceImage: String,
   val lastVisit: String,
   val accounts: List<CustomerAccount> = emptyList(),
+  val transactions: List<CustomerTransaction> = emptyList(),
   val history: List<CustomerHistoryEntry> = emptyList(),
+  val conversationHistory: List<ConversationTurn> = emptyList(),
 )
 
 data class CustomerAccount(
@@ -30,8 +32,35 @@ data class CustomerAccount(
   val status: String = "",
 )
 
+data class CustomerTransaction(
+  val id: String = "",
+  val date: String = "",
+  val description: String = "",
+  val category: String = "",
+  val amount: Double = 0.0,
+  val currency: String = "INR",
+  val direction: String = "OUT",
+  val status: String = "Completed",
+)
+
 data class CustomerHistoryEntry(
   val date: String = "",
   val type: String = "",
   val notes: String = "",
+)
+
+enum class ConversationRole { CUSTOMER, ASSISTANT }
+
+data class ConversationTurn(
+  val role: ConversationRole,
+  val text: String,
+  val timestampMs: Long = System.currentTimeMillis(),
+)
+
+data class CustomerSession(
+  val id: String,
+  val customerId: String,
+  val startedAtMs: Long,
+  val endedAtMs: Long? = null,
+  val turns: List<ConversationTurn> = emptyList(),
 )
