@@ -34,4 +34,7 @@ data class StreamUiState(
     val voiceTranscript: String? = null,
     val isDocumentAnalyzing: Boolean = false,
     val documentAnalysis: DocumentAnalysisResult? = null,
+    val conversationQuery: String? = null,
+    val conversationResponse: String? = null,
+    val isConversationResponding: Boolean = false,
 )

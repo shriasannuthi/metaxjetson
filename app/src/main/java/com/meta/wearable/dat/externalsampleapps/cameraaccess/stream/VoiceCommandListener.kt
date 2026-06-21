@@ -31,7 +31,8 @@ class VoiceCommandListener(
   context: Context,
   private val command: String,
   private val onCommandDetected: () -> Unit,
-  private val onSpeechRecognized: (String) -> Unit = {},
+  private val onSpeechRecognized: (String, Boolean) -> Unit = { _, _ -> },
+  private val onListeningStarted: () -> Unit = {},
 ) {
   companion object {
     private const val TAG = "CameraAccess:VoiceCommandListener"
@@ -139,6 +140,7 @@ class VoiceCommandListener(
             object : RecognitionListener {
               override fun onReadyForSpeech(params: Bundle?) {
                 Log.d(TAG, "Speech recognizer ready for speech")
+                onListeningStarted()
               }
 
               override fun onBeginningOfSpeech() {
@@ -155,18 +157,22 @@ class VoiceCommandListener(
 
               override fun onError(error: Int) {
                 Log.i(TAG, "Speech recognition error: $error (${getErrorDescription(error)})")
+                if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == SpeechRecognizer.ERROR_CLIENT) {
+                  Log.i(TAG, "Recreating speech recognizer due to error: $error")
+                  recreateRecognizer()
+                }
                 scheduleRestart()
               }
 
               override fun onResults(results: Bundle?) {
                 Log.d(TAG, "Speech recognition results received")
-                handleRecognizedText(results)
+                handleRecognizedText(results, isFinal = true)
                 scheduleRestart()
               }
 
               override fun onPartialResults(partialResults: Bundle?) {
                 Log.d(TAG, "Partial speech recognition results")
-                handleRecognizedText(partialResults)
+                handleRecognizedText(partialResults, isFinal = false)
               }
 
               override fun onEvent(eventType: Int, params: Bundle?) = Unit
@@ -178,6 +184,17 @@ class VoiceCommandListener(
       Log.e(TAG, "Failed to create SpeechRecognizer: ${e.message}", e)
       speechRecognizer = null
     }
+  }
+
+  private fun recreateRecognizer() {
+    try {
+      speechRecognizer?.cancel()
+      speechRecognizer?.destroy()
+    } catch (e: Exception) {
+      Log.w(TAG, "Error cleaning up old speech recognizer: ${e.message}")
+    }
+    speechRecognizer = null
+    ensureRecognizer()
   }
 
   private fun getErrorDescription(errorCode: Int): String {
@@ -201,6 +218,9 @@ class VoiceCommandListener(
       return
     }
 
+    if (speechRecognizer == null) {
+      ensureRecognizer()
+    }
     if (speechRecognizer == null) {
       Log.w(TAG, "SpeechRecognizer is null, cannot start listening")
       return
@@ -231,10 +251,15 @@ class VoiceCommandListener(
   private fun scheduleRestart() {
     if (!isListening) return
     Log.i(TAG, "Scheduling speech recognizer restart")
+    try {
+      speechRecognizer?.cancel()
+    } catch (e: Exception) {
+      Log.w(TAG, "Error canceling speech recognizer during restart: ${e.message}")
+    }
     mainHandler.postDelayed({ listen() }, RESTART_DELAY_MS)
   }
 
-  private fun handleRecognizedText(results: Bundle?) {
+  private fun handleRecognizedText(results: Bundle?, isFinal: Boolean) {
     val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
     if (matches.isEmpty()) {
       Log.d(TAG, "No speech recognition results available")
@@ -246,7 +271,7 @@ class VoiceCommandListener(
     Log.d(TAG, "All candidates: $matches")
 
     // Report the recognized text to the callback
-    onSpeechRecognized(recognizedText)
+    onSpeechRecognized(recognizedText, isFinal)
 
     // Check if it matches the voice command
     if (matches.none { it.matchesVoiceCommand() }) {

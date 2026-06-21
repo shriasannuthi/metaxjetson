@@ -24,7 +24,11 @@ import com.meta.wearable.dat.externalsampleapps.cameraaccess.data.CustomerReposi
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import com.itextpdf.text.pdf.PdfReader
+import com.itextpdf.text.pdf.parser.PdfTextExtractor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -38,7 +42,10 @@ class GeminiService(
   private val gson: Gson = Gson(),
   private val apiKey: String = BuildConfig.GEMINI_API_KEY,
 ) {
-  fun isConfigured(): Boolean = apiKey.isNotBlank() && apiKey != PLACEHOLDER_API_KEY
+  private var pdfChunks: List<PdfChunk>? = null
+  private val chunksMutex = Mutex()
+
+  fun isConfigured(): Boolean = apiKey.isNotBlank()
 
   suspend fun postToGemini(prompt: String, images: List<Bitmap> = emptyList()): String =
     withContext(Dispatchers.IO) {
@@ -125,6 +132,118 @@ class GeminiService(
     return DocumentAnalysisResult(rawJson = responseJson, json = parsed)
   }
 
+  suspend fun getConversationSuggestion(
+      utterance: String,
+      customer: Customer?,
+  ): String {
+    Log.i(
+        TAG,
+        "Conversation suggestion request: utterance='$utterance', customer=${customer?.id ?: "none"}",
+    )
+    val customerContext = customer?.let {
+      """
+      Current customer context:
+      - ID: ${it.id}
+      - Name: ${it.name}
+      - Profile: ${it.profile}
+      - Accounts & Balances: ${it.accounts.joinToString { acc -> "${acc.type} (${acc.balance})" }}
+      - Last Visit Notes: ${it.history.firstOrNull()?.notes.orEmpty()}
+      """.trimIndent()
+    } ?: "No customer has been matched yet."
+
+    val customers = customerRepository.loadCustomers()
+    val customerDbString = customers.joinToString(separator = "\n\n") { cust ->
+      """
+      Name: ${cust.name} (ID: ${cust.id})
+      - Phone: ${cust.phone}
+      - Profile: ${cust.profile}
+      - Accounts: ${cust.accounts.joinToString { "${it.type} (${it.balance})" }}
+      - Notes: ${cust.history.joinToString { it.notes }}
+      """.trimIndent()
+    }
+
+    val fallbackKnowledgeBase = """
+      1. Checking Accounts:
+         - Everyday Checking: $10 monthly service fee, waivable with $500 minimum daily balance or 10+ posted transactions.
+         - Clear Access Banking: $5 monthly service fee, waivable for ages 13-24. No overdraft fees.
+         - Overdraft Fee: $35 per item.
+      2. Savings Accounts:
+         - Way2Save Savings: Interest rate is 0.01% APY. $5 monthly fee, waivable with $300 minimum daily balance or $25+ recurring monthly transfer.
+         - Platinum Savings: Interest rate is 0.01% APY (relationship rates up to 2.5% APY). $12 monthly fee, waivable with $3,500 minimum daily balance.
+      3. Home Loans & Mortgages:
+         - Fixed-rate (15-year and 30-year) and adjustable-rate mortgages (ARM) are available.
+         - Relationship Benefits: Qualified relationship customers with eligible assets held at Wells Fargo can receive closing cost credits or interest rate discounts.
+      4. Credit Cards:
+         - Cards like Active Cash and Autograph have no annual fee.
+         - 0% introductory APR offers on purchases or balance transfers for qualified customers.
+         - Autopay and overdraft protection options are available.
+    """.trimIndent()
+
+    val chunks = getOrLoadPdfChunks()
+    val knowledgeBaseContext = if (chunks.isNotEmpty()) {
+      val relevantChunks = retrieveRelevantChunks(utterance, chunks)
+      if (relevantChunks.isNotEmpty()) {
+        relevantChunks.joinToString(separator = "\n\n") { chunk ->
+          "Source: ${chunk.sourceFile} (Page ${chunk.pageNumber}):\n${chunk.text}"
+        }
+      } else {
+        chunks.take(2).joinToString(separator = "\n\n") { chunk ->
+          "Source: ${chunk.sourceFile} (Page ${chunk.pageNumber}):\n${chunk.text}"
+        }
+      }
+    } else {
+      Log.w(TAG, "No PDFs found in assets/pdf. Using fallback hardcoded Wells Fargo knowledge base.")
+      fallbackKnowledgeBase
+    }
+
+    val prompt = """
+      You are an AI assistant helping a bank Relationship Manager (RM) who is wearing smart glasses and talking to a customer.
+      
+      [KNOWLEDGE BASE]
+      $knowledgeBaseContext
+
+      [CUSTOMER DATABASE]
+      $customerDbString
+
+      [CURRENT CUSTOMER CONTEXT]
+      $customerContext
+
+      [RM OR CUSTOMER UTTERANCE]
+      "$utterance"
+
+      [INSTRUCTIONS]
+      Provide a helpful suggestion for the RM:
+      - Answer using the provided knowledge base and customer database ONLY. Do not use external or other bank information. If the information is not present in the knowledge base or customer context, state clearly that you do not have that information.
+      - Quote correct interest rates, fees, benefits, or requirements if relevant.
+      - Suggest next steps or a helpful response.
+      - Keep it short, actionable, and under 50 words.
+      - Do not output markdown blocks or JSON, just plain text.
+      - CRITICAL: Output ONLY the direct answer/suggestion. Do NOT repeat the prompt, the user role, customer data, the query, or the knowledge base. Do NOT output introductory text, bullet points summarizing the context, or headers. Begin your response immediately with the suggestion itself.
+
+      [SUGGESTION]
+    """.trimIndent()
+
+    return postToGemini(prompt)
+  }
+
+  suspend fun classifyQueryIsBankRelated(query: String): Boolean {
+    val prompt = """
+      You are an intent classifier for a banking assistant.
+      Determine if the following user query is related to banking, accounts, financial transactions, interest rates, customer details, or loans.
+      Respond with "YES" if it is related, and "NO" if it is not related. Do not output any other text.
+
+      Query: "$query"
+    """.trimIndent()
+
+    return try {
+      val response = postToGemini(prompt)
+      response.trim().startsWith("YES", ignoreCase = true)
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to classify query, falling back to true", e)
+      true
+    }
+  }
+
   suspend fun processVoiceCommand(transcribedText: String): VoiceCommandResult {
     val normalized = transcribedText.trim().lowercase()
     if (normalized.contains("hey meta") && normalized.contains("scan")) {
@@ -191,9 +310,12 @@ class GeminiService(
           add(
               "generationConfig",
               JsonObject().apply {
+                addProperty("maxOutputTokens", 120)
                 add(
                     "thinkingConfig",
-                    JsonObject().apply { addProperty("thinkingLevel", "HIGH") },
+                    JsonObject().apply {
+                      addProperty("thinkingLevel", "MINIMAL")
+                    },
                 )
               },
           )
@@ -229,7 +351,11 @@ class GeminiService(
                   ?.getAsJsonArray("parts")
                   ?: return@candidateLoop
           parts.forEach { part ->
-            part.asJsonObject.get("text")?.asString?.let(::append)
+            val partObj = part.asJsonObject
+            val isThought = partObj.get("thought")?.asBoolean ?: false
+            if (!isThought) {
+              partObj.get("text")?.asString?.let(::append)
+            }
           }
         }
       }
@@ -344,6 +470,147 @@ class GeminiService(
 
   private fun Boolean?.orFalse(): Boolean = this == true
 
+  private suspend fun getOrLoadPdfChunks(): List<PdfChunk> {
+    if (pdfChunks != null) return pdfChunks!!
+    return chunksMutex.withLock {
+      if (pdfChunks != null) return@withLock pdfChunks!!
+      val chunks = loadAllPdfsFromAssets()
+      pdfChunks = chunks
+      chunks
+    }
+  }
+
+  private suspend fun loadAllPdfsFromAssets(): List<PdfChunk> = withContext(Dispatchers.IO) {
+    val chunksList = mutableListOf<PdfChunk>()
+    try {
+      val pdfDir = "pdf"
+      val files = context.assets.list(pdfDir) ?: emptyArray()
+      Log.i(TAG, "Found ${files.size} PDF files in assets/$pdfDir")
+      for (fileName in files) {
+        if (fileName.endsWith(".pdf", ignoreCase = true)) {
+          val fullPath = "$pdfDir/$fileName"
+          try {
+            context.assets.open(fullPath).use { inputStream ->
+              val reader = PdfReader(inputStream)
+              val numPages = reader.numberOfPages
+              Log.d(TAG, "Parsing PDF: $fileName with $numPages pages")
+              for (page in 1..numPages) {
+                val pageText = PdfTextExtractor.getTextFromPage(reader, page)
+                if (!pageText.isNullOrBlank()) {
+                  chunksList.addAll(chunkText(fileName, pageText, page))
+                }
+              }
+              reader.close()
+            }
+          } catch (e: Exception) {
+            Log.e(TAG, "Error parsing PDF file: $fileName", e)
+          }
+        }
+      }
+    } catch (e: Exception) {
+      Log.e(TAG, "Error listing PDF assets", e)
+    }
+    chunksList
+  }
+
+  private fun chunkText(fileName: String, text: String, page: Int): List<PdfChunk> {
+    val paragraphs = text.split(Regex("(\\n\\r?|\\r){2,}"))
+    val chunks = mutableListOf<PdfChunk>()
+    
+    var currentChunk = StringBuilder()
+    for (para in paragraphs) {
+      val trimmed = para.trim()
+      if (trimmed.isEmpty()) continue
+      
+      if (currentChunk.isNotEmpty() && currentChunk.length + trimmed.length > 500) {
+        chunks.add(PdfChunk(fileName, currentChunk.toString(), page))
+        currentChunk = StringBuilder()
+      }
+      
+      if (currentChunk.isNotEmpty()) {
+        currentChunk.append("\n\n")
+      }
+      currentChunk.append(trimmed)
+    }
+    if (currentChunk.isNotEmpty()) {
+      chunks.add(PdfChunk(fileName, currentChunk.toString(), page))
+    }
+    
+    if (chunks.isEmpty() && text.isNotBlank()) {
+      var index = 0
+      while (index < text.length) {
+        val end = minOf(index + 500, text.length)
+        chunks.add(PdfChunk(fileName, text.substring(index, end), page))
+        index += 400
+      }
+    }
+    
+    return chunks
+  }
+
+  private fun retrieveRelevantChunks(utterance: String, chunks: List<PdfChunk>, topN: Int = 3): List<PdfChunk> {
+    if (chunks.isEmpty()) return emptyList()
+    
+    val stopWords = setOf(
+      "the", "a", "an", "and", "or", "but", "if", "then", "else", "when", 
+      "at", "by", "for", "with", "about", "against", "between", "into", 
+      "through", "during", "before", "after", "above", "below", "to", 
+      "from", "up", "down", "in", "out", "on", "off", "over", "under", 
+      "again", "further", "then", "once", "here", "there", "all", "any", 
+      "both", "each", "few", "more", "most", "other", "some", "such", 
+      "no", "nor", "not", "only", "own", "same", "so", "than", "too", 
+      "very", "s", "t", "can", "will", "just", "don", "should", "now", 
+      "i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", 
+      "your", "yours", "yourself", "yourselves", "he", "him", "his", 
+      "himself", "she", "her", "hers", "herself", "it", "its", "itself", 
+      "they", "them", "their", "theirs", "themselves", "what", "which", 
+      "who", "whom", "this", "that", "these", "those", "am", "is", "are", 
+      "was", "were", "be", "been", "being", "have", "has", "had", "having", 
+      "do", "does", "did", "doing", "would", "should", "could", "ought", 
+      "i'm", "you're", "he's", "she's", "it's", "we're", "they're", 
+      "i've", "you've", "we've", "they've", "i'd", "you'd", "he'd", 
+      "she'd", "we'd", "they'd", "i'll", "you'll", "he'll", "she'll", 
+      "we'll", "they'll", "isn't", "aren't", "wasn't", "weren't", 
+      "hasn't", "haven't", "hadn't", "doesn't", "don't", "didn't", 
+      "won't", "wouldn't", "shan't", "shouldn't", "can't", "cannot", 
+      "couldn't", "mustn't", "let's", "that's", "who's", "what's", 
+      "here's", "there's", "when's", "where's", "why's", "how's"
+    )
+    
+    val queryTokens = utterance.lowercase()
+      .split(Regex("[^a-zA-Z0-9']"))
+      .map { it.trim() }
+      .filter { it.length > 1 && it !in stopWords }
+      .toSet()
+      
+    if (queryTokens.isEmpty()) {
+      return chunks.take(topN)
+    }
+    
+    val scoredChunks = chunks.map { chunk ->
+      val chunkTextLower = chunk.text.lowercase()
+      var score = 0.0
+      
+      for (token in queryTokens) {
+        if (chunkTextLower.contains(token)) {
+          score += 1.0
+          if (chunkTextLower.contains("\\b${Regex.escape(token)}\\b".toRegex())) {
+            score += 1.0
+          }
+          val occurrences = chunkTextLower.split(token).size - 1
+          score += occurrences * 0.1
+        }
+      }
+      chunk to score
+    }
+    
+    return scoredChunks
+      .filter { it.second > 0.0 }
+      .sortedByDescending { it.second }
+      .map { it.first }
+      .take(topN)
+  }
+
   companion object {
     private const val TAG = "CameraAccess:GeminiService"
     private const val MODEL_ID = "gemma-4-26b-a4b-it"
@@ -403,4 +670,10 @@ private data class VoiceIntentResponse(
 private data class CustomerFaceReference(
   val customer: Customer,
   val bitmap: Bitmap,
+)
+
+data class PdfChunk(
+  val sourceFile: String,
+  val text: String,
+  val pageNumber: Int,
 )

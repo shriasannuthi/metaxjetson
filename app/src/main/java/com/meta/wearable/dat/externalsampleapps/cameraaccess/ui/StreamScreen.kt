@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material3.CircularProgressIndicator
@@ -129,6 +130,16 @@ fun StreamScreen(
         modifier =
             Modifier.align(Alignment.BottomCenter)
                 .padding(start = 24.dp, end = 24.dp, bottom = 104.dp),
+    )
+
+    ConversationAssistantOverlay(
+        query = streamUiState.conversationQuery,
+        response = streamUiState.conversationResponse,
+        isResponding = streamUiState.isConversationResponding,
+        onDismiss = { streamViewModel.dismissConversationSuggestion() },
+        modifier =
+            Modifier.align(Alignment.CenterStart)
+                .padding(start = 24.dp, top = 80.dp),
     )
 
     // Audio status overlay
@@ -525,3 +536,89 @@ private fun JsonElement.toDisplayValue(): String =
       isJsonObject -> asJsonObject.toCompactDisplay()
       else -> toString()
     }
+
+@Composable
+private fun ConversationAssistantOverlay(
+    query: String?,
+    response: String?,
+    isResponding: Boolean,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+  if (response == null && !isResponding && query.isNullOrBlank()) return
+
+  Box(
+      modifier =
+          modifier
+              .fillMaxWidth(0.78f)
+              .background(Color.Black.copy(alpha = 0.68f), shape = RoundedCornerShape(8.dp))
+              .padding(12.dp)
+  ) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+      Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Icon(
+              imageVector = Icons.Default.Lightbulb,
+              contentDescription = "Conversation Assistant",
+              tint = AppColor.Yellow,
+              modifier = Modifier.size(18.dp),
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text(
+              text = "Co-Pilot Suggestion",
+              color = Color.White,
+              style = MaterialTheme.typography.labelLarge,
+              fontWeight = FontWeight.SemiBold,
+          )
+        }
+        IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+          Icon(
+              imageVector = Icons.Default.Close,
+              contentDescription = "Dismiss suggestion",
+              tint = Color.White,
+              modifier = Modifier.size(16.dp),
+          )
+        }
+      }
+
+      query?.takeIf { it.isNotBlank() }?.let {
+        Text(
+            text = "\"$it\"",
+            color = Color.White.copy(alpha = 0.6f),
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Normal,
+            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+            modifier = Modifier.padding(bottom = 4.dp),
+        )
+      }
+
+      if (isResponding) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          CircularProgressIndicator(
+              modifier = Modifier.size(14.dp),
+              strokeWidth = 2.dp,
+              color = Color.White,
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text(
+              text = "Consulting knowledge base...",
+              color = Color.White.copy(alpha = 0.82f),
+              style = MaterialTheme.typography.labelSmall,
+          )
+        }
+      } else {
+        response?.let {
+          Text(
+              text = it,
+              color = Color.White.copy(alpha = 0.88f),
+              style = MaterialTheme.typography.bodySmall,
+          )
+        }
+      }
+    }
+  }
+}

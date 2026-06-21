@@ -382,6 +382,41 @@ class StreamViewModel(
     }
   }
 
+  private fun cleanQuery(transcript: String): String {
+    val trimmed = transcript.trim()
+    val lower = trimmed.lowercase()
+    
+    // Check for prefixes in order of length (longest first to avoid partial matches)
+    val prefixes = listOf("hey meta", "hey, meta", "hey metal", "he metal", "hemetal", "a meta")
+    for (prefix in prefixes) {
+      if (lower.startsWith(prefix)) {
+        var rest = trimmed.substring(prefix.length).trim()
+        if (rest.startsWith(",") || rest.startsWith(".") || rest.startsWith("?")) {
+          rest = rest.substring(1).trim()
+        }
+        return rest
+      }
+    }
+    
+    // Also check for individual wake words if they appear alone or followed by space
+    if (lower.startsWith("hey")) {
+      var rest = trimmed.substring(3).trim()
+      if (rest.startsWith(",") || rest.startsWith(".") || rest.startsWith("?")) {
+        rest = rest.substring(1).trim()
+      }
+      return rest
+    }
+    if (lower.startsWith("meta")) {
+      var rest = trimmed.substring(4).trim()
+      if (rest.startsWith(",") || rest.startsWith(".") || rest.startsWith("?")) {
+        rest = rest.substring(1).trim()
+      }
+      return rest
+    }
+    
+    return trimmed
+  }
+
   private fun startVoiceCommandListener() {
     if (voiceCommandListener != null) {
       Log.d(TAG, "Voice command listener already started")
@@ -393,15 +428,34 @@ class StreamViewModel(
             context = getApplication<Application>(),
             command = VOICE_SCAN_COMMAND,
             onCommandDetected = { handleVoiceScanCommand() },
-            onSpeechRecognized = { transcript ->
-              Log.d(TAG, "Speech recognized: $transcript")
+            onSpeechRecognized = { transcript, isFinal ->
+              Log.d(TAG, "Speech recognized (isFinal=$isFinal): $transcript")
+              val normalized = transcript.lowercase().trim()
+              val isSystemCommand = normalized.contains("scan")
+              
+              val cleanedQuery = if (!isSystemCommand) cleanQuery(transcript) else ""
+              
               _uiState.update {
                 it.copy(
                     voiceTranscript = transcript,
-                    voiceCommandStatus = "Heard: $transcript",
+                    voiceCommandStatus = if (isFinal) "Heard: $transcript" else "Listening...",
+                    conversationQuery = if (cleanedQuery.isNotBlank()) cleanedQuery else it.conversationQuery,
+                    conversationResponse = if (transcript.isNotBlank() && !isFinal) null else it.conversationResponse,
                 )
               }
+              
+              if (isFinal && cleanedQuery.isNotBlank()) {
+                getConversationSuggestion(cleanedQuery)
+              }
             },
+            onListeningStarted = {
+              _uiState.update {
+                it.copy(
+                    voiceCommandStatus = "Listening...",
+                    voiceTranscript = null,
+                )
+              }
+            }
         )
     voiceCommandListener?.start()
     _uiState.update {
@@ -411,6 +465,77 @@ class StreamViewModel(
       )
     }
     Log.i(TAG, "Voice command listener started")
+  }
+
+  private fun getConversationSuggestion(utterance: String) {
+    if (!geminiService.isConfigured()) {
+      Log.w(TAG, "Skipping conversation assistant query: GEMINI_API_KEY is not configured")
+      return
+    }
+
+    val normalized = utterance.lowercase().trim()
+    if (normalized.isEmpty() || normalized == "hey meta" || normalized == "hey meta scan" || normalized.contains("scan")) {
+      Log.d(TAG, "Ignoring voice command utterance for assistant suggestion: $utterance")
+      return
+    }
+
+    _uiState.update {
+      it.copy(
+          isConversationResponding = true,
+          conversationQuery = utterance,
+          conversationResponse = null,
+      )
+    }
+    viewModelScope.launch {
+      try {
+        // Stage 1: Classify if the query is banking-related
+        val isBankRelated = withContext(Dispatchers.IO) {
+          geminiService.classifyQueryIsBankRelated(utterance)
+        }
+
+        if (!isBankRelated) {
+          Log.i(TAG, "Query classified as non-banking: $utterance")
+          _uiState.update {
+            it.copy(
+                isConversationResponding = false,
+                voiceCommandStatus = "Ignored (non-bank related): $utterance",
+                conversationQuery = null,
+                conversationResponse = null
+            )
+          }
+          return@launch
+        }
+
+        // Stage 2: Fetch the suggestion
+        val customer = _uiState.value.matchedCustomer
+        val response = withContext(Dispatchers.IO) {
+          geminiService.getConversationSuggestion(utterance, customer)
+        }
+        _uiState.update {
+          it.copy(
+              isConversationResponding = false,
+              conversationResponse = response,
+          )
+        }
+      } catch (e: Exception) {
+        Log.e(TAG, "Failed to get conversation suggestion", e)
+        _uiState.update {
+          it.copy(
+              isConversationResponding = false,
+              conversationResponse = "Error: ${e.message}",
+          )
+        }
+      }
+    }
+  }
+
+  fun dismissConversationSuggestion() {
+    _uiState.update {
+      it.copy(
+          conversationQuery = null,
+          conversationResponse = null,
+      )
+    }
   }
 
   fun listenForVoiceTest() {
