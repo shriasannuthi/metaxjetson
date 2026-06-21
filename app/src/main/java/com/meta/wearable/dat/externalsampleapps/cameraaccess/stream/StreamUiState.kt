@@ -33,5 +33,6 @@ data class StreamUiState(
     val voiceCommandStatus: String? = null,
     val voiceTranscript: String? = null,
     val isDocumentAnalyzing: Boolean = false,
+    val documentAnalysisPartial: String? = null,
     val documentAnalysis: DocumentAnalysisResult? = null,
 )
