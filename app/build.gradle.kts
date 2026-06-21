@@ -92,6 +92,7 @@ dependencies {
   implementation(libs.tensorflow.lite)
   implementation("com.squareup.okhttp3:okhttp:4.12.0")
   implementation("com.google.code.gson:gson:2.11.0")
+  implementation("com.itextpdf:itextg:5.5.10")
   implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.0")
   androidTestImplementation(libs.androidx.ui.test.junit4)
   androidTestImplementation(libs.androidx.test.uiautomator)
