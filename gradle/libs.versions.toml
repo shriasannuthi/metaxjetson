@@ -11,6 +11,7 @@ testRules = "1.5.0"
 uiJunit4 = "1.6.1"
 exifInterface = "1.3.7"
 mlkitFaceDetection = "16.1.7"
+mlkitTextRecognition = "16.0.1"
 tensorflowLite = "2.16.1"
 
 [libraries]
@@ -29,6 +30,7 @@ androidx-test-rules = { group = "androidx.test", name = "rules", version.ref = "
 androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4", version.ref = "uiJunit4"}
 androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifInterface" }
 mlkit-face-detection = { group = "com.google.mlkit", name = "face-detection", version.ref = "mlkitFaceDetection" }
+mlkit-text-recognition = { group = "com.google.mlkit", name = "text-recognition", version.ref = "mlkitTextRecognition" }
 tensorflow-lite = { group = "org.tensorflow", name = "tensorflow-lite", version.ref = "tensorflowLite" }
 
 [plugins]

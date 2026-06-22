@@ -37,10 +37,9 @@ data class CustomerTransaction(
   val date: String = "",
   val description: String = "",
   val category: String = "",
-  val amount: Double = 0.0,
-  val currency: String = "INR",
-  val direction: String = "OUT",
-  val status: String = "Completed",
+  val amount: String = "",
+  val direction: String = "",
+  val status: String = "",
 )
 
 data class CustomerHistoryEntry(

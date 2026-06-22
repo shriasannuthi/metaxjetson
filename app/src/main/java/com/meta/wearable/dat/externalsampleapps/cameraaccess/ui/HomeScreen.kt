@@ -25,8 +25,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -60,25 +63,44 @@ fun HomeScreen(
           modifier
               .fillMaxSize()
               .verticalScroll(scrollState)
-              .padding(all = 24.dp)
+              .padding(horizontal = 24.dp, vertical = 28.dp)
               .navigationBarsPadding(),
       horizontalAlignment = Alignment.CenterHorizontally,
-      verticalArrangement = Arrangement.spacedBy(24.dp),
+      verticalArrangement = Arrangement.spacedBy(28.dp),
   ) {
     Spacer(modifier = Modifier.weight(1f))
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-      Icon(
-          painter = painterResource(id = R.drawable.camera_access_icon),
-          contentDescription = stringResource(R.string.camera_access_icon_description),
-          tint = AppColor.DeepBlue,
-          modifier = Modifier.size(80.dp * LocalDensity.current.density),
+      Surface(
+          shape = RoundedCornerShape(28.dp),
+          color = AppColor.DeepBlue.copy(alpha = 0.10f),
+      ) {
+        Icon(
+            painter = painterResource(id = R.drawable.camera_access_icon),
+            contentDescription = stringResource(R.string.camera_access_icon_description),
+            tint = AppColor.DeepBlue,
+            modifier = Modifier.padding(20.dp).size(48.dp * LocalDensity.current.density),
+        )
+      }
+      Text(
+          text = "Camera Access",
+          style = MaterialTheme.typography.headlineMedium,
+          fontWeight = FontWeight.Bold,
+          color = AppColor.Ink,
+          textAlign = TextAlign.Center,
+      )
+      Text(
+          text = "Connect your glasses once, then move straight into live capture and customer assist.",
+          style = MaterialTheme.typography.bodyLarge,
+          color = AppColor.Slate,
+          textAlign = TextAlign.Center,
+          modifier = Modifier.padding(horizontal = 8.dp),
       )
       Column(
           verticalArrangement = Arrangement.spacedBy(12.dp),
-          modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp),
+          modifier = Modifier.fillMaxWidth(),
       ) {
         TipItem(
             iconResId = R.drawable.smart_glasses_icon,
@@ -100,14 +122,16 @@ fun HomeScreen(
     Spacer(modifier = Modifier.weight(1f))
 
     Column(
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
       // App Registration Button
       Text(
           text = stringResource(R.string.home_redirect_message),
-          color = Color.Gray,
+          color = AppColor.Slate,
+          style = MaterialTheme.typography.bodyMedium,
           textAlign = TextAlign.Center,
-          modifier = Modifier.padding(horizontal = 24.dp),
+          modifier = Modifier.padding(horizontal = 12.dp),
       )
       SwitchButton(
           label = stringResource(R.string.register_button_title),
@@ -128,22 +152,30 @@ private fun TipItem(
     text: String,
     modifier: Modifier = Modifier,
 ) {
-  Row(modifier = modifier.fillMaxWidth()) {
-    Icon(
-        painter = painterResource(id = iconResId),
-        contentDescription = "Tip icon",
-        modifier = Modifier.padding(start = 4.dp, top = 4.dp).width(24.dp),
-    )
-    Spacer(modifier = Modifier.width(12.dp))
-    Column(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-      Text(
-          text = title,
-          fontSize = 20.sp,
-          fontWeight = FontWeight.SemiBold,
+  Surface(
+      modifier = modifier.fillMaxWidth(),
+      shape = RoundedCornerShape(20.dp),
+      color = AppColor.Mist,
+  ) {
+    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
+      Icon(
+          painter = painterResource(id = iconResId),
+          contentDescription = "Tip icon",
+          tint = AppColor.DeepBlue,
+          modifier = Modifier.padding(top = 2.dp).width(22.dp),
       )
-      Text(text = text, color = Color.Gray)
+      Spacer(modifier = Modifier.width(12.dp))
+      Column(
+          verticalArrangement = Arrangement.spacedBy(4.dp),
+      ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = AppColor.Ink,
+        )
+        Text(text = text, color = AppColor.Slate, style = MaterialTheme.typography.bodyMedium)
+      }
     }
   }
 }

@@ -74,6 +74,10 @@ class StreamViewModel(
     private val SESSION_TERMINAL_STATES = setOf(StreamState.CLOSED)
     private const val FACE_RECOGNITION_INTERVAL_MS = 1_500L
     private const val MATCHED_FACE_RECHECK_INTERVAL_MS = 6_000L
+    private const val DOCUMENT_DETECTION_INTERVAL_MS = 350L
+    private const val DOCUMENT_STABILITY_WINDOW = 5
+    private const val DOCUMENT_STABILITY_REQUIRED_HITS = 3
+    private const val DOCUMENT_TEXT_STABILITY_REQUIRED_HITS = 2
     private const val VOICE_SCAN_COMMAND = "hey meta scan"
     private const val ENABLE_RAW_AUDIO_RECORDING = false
     private const val MAX_PARTIAL_RESPONSE_CHARS = 900
@@ -82,6 +86,8 @@ class StreamViewModel(
   private val deviceSelector: DeviceSelector = wearablesViewModel.deviceSelector
   private val geminiService: GeminiService = GeminiService(application)
   private val faceRecognitionService: FaceRecognitionService = FaceRecognitionService(application)
+  private val documentDetector: DocumentDetector = DocumentDetector()
+  private val documentTextVerifier: DocumentTextVerifier = DocumentTextVerifier()
   private var session: DeviceSession? = null
 
   private val _uiState = MutableStateFlow(INITIAL_STATE)
@@ -94,7 +100,11 @@ class StreamViewModel(
   @SuppressLint("MissingGuardedByAnnotation") private var sessionErrorJob: Job? = null
   private var sessionStateJob: Job? = null
   private var faceRecognitionJob: Job? = null
+  private var documentDetectionJob: Job? = null
   private var lastFaceRecognitionAtMs = 0L
+  private var lastDocumentDetectionAtMs = 0L
+  private val documentDetectionHistory = ArrayDeque<Boolean>()
+  private val documentTextHistory = ArrayDeque<Boolean>()
   private var voiceCommandListener: VoiceCommandListener? = null
   private var stream: Stream? = null
   private var audioStream: AudioStream? = null
@@ -122,8 +132,13 @@ class StreamViewModel(
     previousDeviceSessionState = null
     faceRecognitionJob?.cancel()
     faceRecognitionJob = null
+    documentDetectionJob?.cancel()
+    documentDetectionJob = null
     stopVoiceCommandListener()
     lastFaceRecognitionAtMs = 0L
+    lastDocumentDetectionAtMs = 0L
+    documentDetectionHistory.clear()
+    documentTextHistory.clear()
 
     // Reset audio recording buffer
     audioRecordingBuffer = ByteArrayOutputStream()
@@ -145,6 +160,7 @@ class StreamViewModel(
                 }
               }
               scheduleFaceRecognition(frame.bitmap)
+              scheduleDocumentDetection(frame.bitmap)
             },
         )
     presentationQueue = queue
@@ -270,8 +286,13 @@ class StreamViewModel(
     sessionStateJob = null
     faceRecognitionJob?.cancel()
     faceRecognitionJob = null
+    documentDetectionJob?.cancel()
+    documentDetectionJob = null
     stopVoiceCommandListener()
     lastFaceRecognitionAtMs = 0L
+    lastDocumentDetectionAtMs = 0L
+    documentDetectionHistory.clear()
+    documentTextHistory.clear()
     presentationQueue?.stop()
     presentationQueue = null
     _uiState.update {
@@ -279,6 +300,10 @@ class StreamViewModel(
           streamState = StreamState.STOPPED,
           isFaceRecognitionRunning = false,
           isVoiceCommandListening = false,
+          isDocumentCandidateVisible = false,
+          isDocumentStable = false,
+          documentDetectionScore = 0f,
+          documentDetectionStatus = null,
           isDocumentAnalyzing = false,
           documentAnalysisPartial = null,
       )
@@ -431,6 +456,19 @@ class StreamViewModel(
     }
     voiceCommandListener?.restartListeningNow()
     Log.i(TAG, "Voice listening restarted")
+  }
+
+  fun pauseVoiceCommandsForAssistant() {
+    Log.i(TAG, "Pausing document voice command listener for RM assistant capture")
+    stopVoiceCommandListener()
+    _uiState.update { it.copy(voiceCommandStatus = "RM assistant listening") }
+  }
+
+  fun resumeVoiceCommandsAfterAssistant() {
+    if (_uiState.value.streamState == StreamState.STREAMING && voiceCommandListener == null) {
+      Log.i(TAG, "Resuming document voice command listener after RM assistant capture")
+      startVoiceCommandListener()
+    }
   }
 
   private fun stopVoiceCommandListener() {
@@ -709,6 +747,101 @@ class StreamViewModel(
             recognitionBitmap.recycle()
           }
         }
+  }
+
+  private fun scheduleDocumentDetection(frameBitmap: Bitmap) {
+    val now = SystemClock.elapsedRealtime()
+    if (now - lastDocumentDetectionAtMs < DOCUMENT_DETECTION_INTERVAL_MS) return
+    if (documentDetectionJob?.isActive == true) return
+
+    val detectionBitmap =
+        try {
+          frameBitmap.copy(frameBitmap.config ?: Bitmap.Config.ARGB_8888, false)
+        } catch (e: Exception) {
+          Log.w(TAG, "Unable to copy frame for document detection", e)
+          return
+        }
+
+    lastDocumentDetectionAtMs = now
+    documentDetectionJob =
+        viewModelScope.launch(Dispatchers.Default) {
+          try {
+            val result = documentDetector.detect(detectionBitmap)
+            val textResult =
+                if (result.isCandidate) {
+                  runCatching { documentTextVerifier.verify(detectionBitmap) }
+                      .onFailure { Log.w(TAG, "Document text verification failed", it) }
+                      .getOrElse {
+                        DocumentTextVerificationResult(
+                            hasDocumentText = false,
+                            score = 0f,
+                            lineCount = 0,
+                            charCount = 0,
+                            debugText = "text unavailable",
+                        )
+                      }
+                } else {
+                  DocumentTextVerificationResult(
+                      hasDocumentText = false,
+                      score = 0f,
+                      lineCount = 0,
+                      charCount = 0,
+                      debugText = "text 0% lines 0 chars 0",
+                  )
+                }
+            updateDocumentDetectionState(result, textResult)
+          } catch (e: Exception) {
+            Log.w(TAG, "Document detection failed", e)
+            _uiState.update {
+              it.copy(
+                  isDocumentCandidateVisible = false,
+                  isDocumentStable = false,
+                  documentDetectionScore = 0f,
+                  documentDetectionStatus = "Document detection failed",
+              )
+            }
+          } finally {
+            detectionBitmap.recycle()
+          }
+        }
+  }
+
+  private fun updateDocumentDetectionState(
+      result: DocumentDetectionResult,
+      textResult: DocumentTextVerificationResult,
+  ) {
+    documentDetectionHistory.addLast(result.isCandidate)
+    documentTextHistory.addLast(textResult.hasDocumentText)
+    while (documentDetectionHistory.size > DOCUMENT_STABILITY_WINDOW) {
+      documentDetectionHistory.removeFirst()
+    }
+    while (documentTextHistory.size > DOCUMENT_STABILITY_WINDOW) {
+      documentTextHistory.removeFirst()
+    }
+    val geometryHitCount = documentDetectionHistory.count { it }
+    val textHitCount = documentTextHistory.count { it }
+    val isStable =
+        geometryHitCount >= DOCUMENT_STABILITY_REQUIRED_HITS &&
+            textHitCount >= DOCUMENT_TEXT_STABILITY_REQUIRED_HITS
+    val status =
+        when {
+          isStable -> "Document visible"
+          result.isCandidate && textResult.hasDocumentText -> "Reading local text"
+          result.isCandidate -> "Document candidate"
+          else -> "Looking for document"
+        }
+    Log.d(
+        TAG,
+        "Document detection: stable=$isStable geometry=$geometryHitCount/${documentDetectionHistory.size} text=$textHitCount/${documentTextHistory.size} ${result.debugText} ${textResult.debugText}",
+    )
+    _uiState.update {
+      it.copy(
+          isDocumentCandidateVisible = result.isCandidate,
+          isDocumentStable = isStable,
+          documentDetectionScore = maxOf(result.score, textResult.score),
+          documentDetectionStatus = "$status - ${result.debugText}; ${textResult.debugText}",
+      )
+    }
   }
 
   private fun handleAudioFrame(audioFrame: AudioFrame) {
