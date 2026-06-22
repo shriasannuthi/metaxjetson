@@ -29,7 +29,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Warning
@@ -40,6 +42,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -89,8 +92,7 @@ fun NonStreamScreen(
 
   MaterialTheme(colorScheme = darkColorScheme()) {
     Box(
-        modifier = modifier.fillMaxSize().background(Color.Black).padding(all = 24.dp),
-        contentAlignment = Alignment.Center,
+        modifier = modifier.fillMaxSize().background(AppColor.Ink).padding(horizontal = 20.dp),
     ) {
       Box(modifier = Modifier.align(Alignment.TopEnd).systemBarsPadding()) {
         IconButton(onClick = { dropdownExpanded = true }) {
@@ -125,15 +127,22 @@ fun NonStreamScreen(
       }
 
       Column(
+          modifier =
+              Modifier.align(Alignment.Center)
+                  .fillMaxWidth()
+                  .verticalScroll(rememberScrollState())
+                  .padding(top = 72.dp, bottom = 220.dp),
           horizontalAlignment = Alignment.CenterHorizontally,
-          verticalArrangement = Arrangement.spacedBy(8.dp),
+          verticalArrangement = Arrangement.spacedBy(18.dp),
       ) {
-        Icon(
-            painter = painterResource(id = R.drawable.camera_access_icon),
-            contentDescription = stringResource(R.string.camera_access_icon_description),
-            tint = Color.White,
-            modifier = Modifier.size(80.dp * LocalDensity.current.density),
-        )
+        Surface(shape = RoundedCornerShape(28.dp), color = Color.White.copy(alpha = 0.10f)) {
+          Icon(
+              painter = painterResource(id = R.drawable.camera_access_icon),
+              contentDescription = stringResource(R.string.camera_access_icon_description),
+              tint = Color.White,
+              modifier = Modifier.padding(20.dp).size(48.dp * LocalDensity.current.density),
+          )
+        }
         Text(
             text = stringResource(R.string.non_stream_screen_title),
             style = MaterialTheme.typography.headlineSmall,
@@ -144,32 +153,31 @@ fun NonStreamScreen(
         Text(
             text = stringResource(R.string.non_stream_screen_description),
             textAlign = TextAlign.Center,
-            color = Color.White,
+            style = MaterialTheme.typography.bodyLarge,
+            color = Color.White.copy(alpha = 0.72f),
+            modifier = Modifier.padding(horizontal = 12.dp),
+        )
+        DeviceReadinessCard(
+            hasActiveDevice = uiState.hasActiveDevice,
+            isUpdateRequired = isUpdateRequired,
+            modifier = Modifier.padding(top = 12.dp),
         )
       }
 
       Column(
-          modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding(),
+          modifier =
+              Modifier.align(Alignment.BottomCenter)
+                  .fillMaxWidth()
+                  .navigationBarsPadding()
+                  .padding(bottom = 20.dp),
           horizontalAlignment = Alignment.CenterHorizontally,
           verticalArrangement = Arrangement.spacedBy(12.dp),
       ) {
         if (!uiState.hasActiveDevice) {
-          Row(
-              horizontalArrangement = Arrangement.spacedBy(8.dp),
-              verticalAlignment = Alignment.CenterVertically,
-          ) {
-            Icon(
-                painter = painterResource(id = R.drawable.hourglass_icon),
-                contentDescription = "Waiting for device",
-                tint = Color.White.copy(alpha = 0.7f),
-                modifier = Modifier.size(16.dp),
-            )
-            Text(
-                text = stringResource(R.string.waiting_for_active_device),
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.7f),
-            )
-          }
+          StatusPill(
+              iconResId = R.drawable.hourglass_icon,
+              text = stringResource(R.string.waiting_for_active_device),
+          )
         }
 
         if (isUpdateRequired) {
@@ -223,6 +231,85 @@ fun NonStreamScreen(
           )
         }
       }
+    }
+  }
+}
+
+@Composable
+private fun DeviceReadinessCard(
+    hasActiveDevice: Boolean,
+    isUpdateRequired: Boolean,
+    modifier: Modifier = Modifier,
+) {
+  val status =
+      when {
+        isUpdateRequired -> "Updates needed"
+        hasActiveDevice -> "Glasses connected"
+        else -> "Looking for glasses"
+      }
+  val description =
+      when {
+        isUpdateRequired -> "Update your glasses before starting a live stream."
+        hasActiveDevice -> "Ready for live camera, voice, and document capture."
+        else -> "Keep your glasses nearby and powered on."
+      }
+  val color =
+      when {
+        isUpdateRequired -> AppColor.Yellow
+        hasActiveDevice -> AppColor.Green
+        else -> Color.White.copy(alpha = 0.68f)
+      }
+
+  Surface(
+      modifier = modifier.fillMaxWidth(),
+      shape = RoundedCornerShape(22.dp),
+      color = Color.White.copy(alpha = 0.08f),
+  ) {
+    Row(
+        modifier = Modifier.padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Box(
+          modifier =
+              Modifier.size(10.dp).clip(RoundedCornerShape(5.dp)).background(color),
+      )
+      Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = status,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White,
+        )
+        Text(
+            text = description,
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White.copy(alpha = 0.68f),
+        )
+      }
+    }
+  }
+}
+
+@Composable
+private fun StatusPill(iconResId: Int, text: String) {
+  Surface(shape = RoundedCornerShape(18.dp), color = Color.White.copy(alpha = 0.10f)) {
+    Row(
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Icon(
+          painter = painterResource(id = iconResId),
+          contentDescription = null,
+          tint = Color.White.copy(alpha = 0.72f),
+          modifier = Modifier.size(16.dp),
+      )
+      Text(
+          text = text,
+          style = MaterialTheme.typography.bodySmall,
+          color = Color.White.copy(alpha = 0.72f),
+      )
     }
   }
 }

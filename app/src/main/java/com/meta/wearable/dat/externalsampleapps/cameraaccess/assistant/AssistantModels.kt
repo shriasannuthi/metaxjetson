@@ -30,7 +30,7 @@ data class AssistantUiState(
   val customers: List<Customer> = emptyList(),
   val selectedCustomerIndex: Int = 0,
   val recognizedCustomer: Customer? = null,
-  val mode: AssistantMode = AssistantMode.PHASE_5A,
+  val mode: AssistantMode = AssistantMode.PHASE_5B,
   val isListening: Boolean = false,
   val speechStatus: String? = null,
   val partialTranscript: String? = null,
