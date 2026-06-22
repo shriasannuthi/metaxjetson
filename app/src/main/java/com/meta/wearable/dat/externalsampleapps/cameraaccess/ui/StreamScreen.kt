@@ -152,6 +152,22 @@ fun StreamScreen(
   var assistantDock by remember { mutableStateOf(AssistantDock.BOTTOM) }
   var isStreamHudExpanded by remember { mutableStateOf(false) }
 
+  val assistantViewModel: AssistantViewModel =
+      viewModel(
+          factory =
+              AssistantViewModel.Factory(
+                  application = (LocalActivity.current as ComponentActivity).application
+              )
+      )
+  val assistantUiState by assistantViewModel.uiState.collectAsStateWithLifecycle()
+  var isAssistantVisible by remember { mutableStateOf(false) }
+
+  LaunchedEffect(streamUiState.matchedCustomer) {
+    streamUiState.matchedCustomer?.let { customer ->
+      assistantViewModel.selectCustomer(customer)
+    }
+  }
+
   LaunchedEffect(Unit) { streamViewModel.startStream() }
   LaunchedEffect(streamUiState.matchedCustomer?.id) {
     streamUiState.matchedCustomer?.let { customer ->
@@ -1280,6 +1296,7 @@ private fun CustomerRecognitionOverlay(
     customer: Customer?,
     isScanning: Boolean,
     status: String?,
+    onShowAssistant: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
   if (customer == null && status.isNullOrBlank() && !isScanning) return
@@ -1352,6 +1369,13 @@ private fun CustomerRecognitionOverlay(
               maxLines = 2,
           )
         }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Tap to chat with Assistant",
+            color = AppColor.Yellow,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+        )
       } else if (isScanning) {
         Row(verticalAlignment = Alignment.CenterVertically) {
           CircularProgressIndicator(
