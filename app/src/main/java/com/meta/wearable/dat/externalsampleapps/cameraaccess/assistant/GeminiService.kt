@@ -119,7 +119,7 @@ class GeminiService(
       }.orEmpty()
 
   companion object {
-    private const val MODEL = "gemma-4-26b-a4b-it"
+    private const val MODEL = "gemini-3.1-flash-lite"
     private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     private val sharedClient = OkHttpClient.Builder()
