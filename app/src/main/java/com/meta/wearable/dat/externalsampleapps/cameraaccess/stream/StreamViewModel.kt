@@ -458,6 +458,19 @@ class StreamViewModel(
     Log.i(TAG, "Voice listening restarted")
   }
 
+  fun pauseVoiceCommandsForAssistant() {
+    Log.i(TAG, "Pausing document voice command listener for RM assistant capture")
+    stopVoiceCommandListener()
+    _uiState.update { it.copy(voiceCommandStatus = "RM assistant listening") }
+  }
+
+  fun resumeVoiceCommandsAfterAssistant() {
+    if (_uiState.value.streamState == StreamState.STREAMING && voiceCommandListener == null) {
+      Log.i(TAG, "Resuming document voice command listener after RM assistant capture")
+      startVoiceCommandListener()
+    }
+  }
+
   private fun stopVoiceCommandListener() {
     voiceCommandListener?.stop()
     voiceCommandListener = null

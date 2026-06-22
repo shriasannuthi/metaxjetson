@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -37,15 +38,23 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PersonSearch
+import androidx.compose.material.icons.filled.SupportAgent
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ElevatedButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -63,9 +72,13 @@ import com.google.gson.JsonObject
 import com.meta.wearable.dat.camera.types.StreamState
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.R
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.DocumentAnalysisResult
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.AssistantMode
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.AssistantUiState
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.AssistantViewModel
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.data.Customer
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.stream.StreamViewModel
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.wearables.WearablesViewModel
+import kotlinx.coroutines.delay
 
 @Composable
 fun StreamScreen(
@@ -81,8 +94,38 @@ fun StreamScreen(
         ),
 ) {
   val streamUiState by streamViewModel.uiState.collectAsStateWithLifecycle()
+  val assistantViewModel: AssistantViewModel =
+      viewModel(
+          factory =
+              AssistantViewModel.Factory(
+                  application = (LocalActivity.current as ComponentActivity).application,
+              ),
+      )
+  val assistantUiState by assistantViewModel.uiState.collectAsStateWithLifecycle()
+  var isAssistantVisible by remember { mutableStateOf(false) }
+  var didPauseVoiceCommandsForAssistant by remember { mutableStateOf(false) }
+  var lastAutoListenedCustomerId by remember { mutableStateOf<String?>(null) }
 
   LaunchedEffect(Unit) { streamViewModel.startStream() }
+  LaunchedEffect(streamUiState.matchedCustomer?.id) {
+    streamUiState.matchedCustomer?.let { customer ->
+      assistantViewModel.selectCustomer(customer)
+      if (lastAutoListenedCustomerId != customer.id) {
+        lastAutoListenedCustomerId = customer.id
+        isAssistantVisible = true
+        streamViewModel.pauseVoiceCommandsForAssistant()
+        didPauseVoiceCommandsForAssistant = true
+        delay(250)
+        assistantViewModel.startListening()
+      }
+    }
+  }
+  LaunchedEffect(assistantUiState.isListening) {
+    if (!assistantUiState.isListening && didPauseVoiceCommandsForAssistant) {
+      streamViewModel.resumeVoiceCommandsAfterAssistant()
+      didPauseVoiceCommandsForAssistant = false
+    }
+  }
 
   Box(modifier = modifier.fillMaxSize()) {
     streamUiState.videoFrame?.let { videoFrame ->
@@ -173,6 +216,19 @@ fun StreamScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize().padding(all = 24.dp)) {
+      FloatingActionButton(
+          onClick = { isAssistantVisible = true },
+          modifier =
+              Modifier.align(Alignment.BottomEnd)
+                  .navigationBarsPadding()
+                  .padding(bottom = 72.dp),
+      ) {
+        Icon(
+            imageVector = Icons.Default.SupportAgent,
+            contentDescription = "Open RM voice assistant",
+        )
+      }
+
       Row(
           modifier =
               Modifier.align(Alignment.BottomCenter)
@@ -209,6 +265,45 @@ fun StreamScreen(
         )
       }
     }
+
+    if (isAssistantVisible) {
+      RmAssistantOverlay(
+          state = assistantUiState,
+          onDismiss = {
+            assistantViewModel.cancelListening()
+            if (didPauseVoiceCommandsForAssistant) {
+              streamViewModel.resumeVoiceCommandsAfterAssistant()
+              didPauseVoiceCommandsForAssistant = false
+            }
+            isAssistantVisible = false
+          },
+          onModeChanged = assistantViewModel::setMode,
+          onCustomerOffset = assistantViewModel::selectCustomerOffset,
+          onStartListening = {
+            streamViewModel.pauseVoiceCommandsForAssistant()
+            didPauseVoiceCommandsForAssistant = true
+            assistantViewModel.startListening()
+          },
+          onStopListeningAndUsePartial = assistantViewModel::stopListeningAndUsePartial,
+          onCancelListening = {
+            assistantViewModel.cancelListening()
+            if (didPauseVoiceCommandsForAssistant) {
+              streamViewModel.resumeVoiceCommandsAfterAssistant()
+              didPauseVoiceCommandsForAssistant = false
+            }
+          },
+          onEndSession = {
+            assistantViewModel.endSession()
+            if (didPauseVoiceCommandsForAssistant) {
+              streamViewModel.resumeVoiceCommandsAfterAssistant()
+              didPauseVoiceCommandsForAssistant = false
+            }
+          },
+          modifier =
+              Modifier.align(Alignment.BottomCenter)
+                  .padding(start = 16.dp, end = 16.dp, bottom = 112.dp),
+      )
+    }
   }
 
   streamUiState.capturedPhoto?.let { photo ->
@@ -236,6 +331,176 @@ fun StreamScreen(
             }
         )
     }
+}
+
+@Composable
+private fun RmAssistantOverlay(
+    state: AssistantUiState,
+    onDismiss: () -> Unit,
+    onModeChanged: (AssistantMode) -> Unit,
+    onCustomerOffset: (Int) -> Unit,
+    onStartListening: () -> Unit,
+    onStopListeningAndUsePartial: () -> Unit,
+    onCancelListening: () -> Unit,
+    onEndSession: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+  val customer = state.customer
+
+  Box(
+      modifier =
+          modifier
+              .fillMaxWidth()
+              .background(Color.Black.copy(alpha = 0.82f), shape = RoundedCornerShape(14.dp))
+              .padding(14.dp)
+  ) {
+    Column(
+        modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+      Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Icon(
+              imageVector = Icons.Default.SupportAgent,
+              contentDescription = "RM assistant",
+              tint = AppColor.Green,
+              modifier = Modifier.size(18.dp),
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text(
+              text = "RM Voice Assistant",
+              color = Color.White,
+              style = MaterialTheme.typography.titleSmall,
+              fontWeight = FontWeight.SemiBold,
+          )
+        }
+        IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+          Icon(Icons.Default.Close, contentDescription = "Close RM assistant", tint = Color.White)
+        }
+      }
+
+      Text(
+          text =
+              customer?.let { "${it.name} (${it.id})" }
+                  ?: "Recognize a customer or choose one below",
+          color = Color.White.copy(alpha = 0.9f),
+          style = MaterialTheme.typography.labelLarge,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+      )
+
+      Text(
+          text =
+              if (state.isListening) {
+                "Auto-listening after face match. Keep the glasses aimed at the customer."
+              } else {
+                "Captures only after a customer face match; use mic again for the next customer question."
+              },
+          color = Color.White.copy(alpha = 0.72f),
+          style = MaterialTheme.typography.labelSmall,
+      )
+
+      Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        TextButton(onClick = { onCustomerOffset(-1) }) { Text("Prev") }
+        TextButton(onClick = { onCustomerOffset(1) }) { Text("Next") }
+        TextButton(
+            onClick = { onModeChanged(AssistantMode.PHASE_5A) },
+            enabled = state.mode != AssistantMode.PHASE_5A,
+        ) {
+          Text("5A current")
+        }
+        TextButton(
+            onClick = { onModeChanged(AssistantMode.PHASE_5B) },
+            enabled = state.mode != AssistantMode.PHASE_5B,
+        ) {
+          Text("5B session")
+        }
+      }
+
+      Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Button(
+            onClick = onStartListening,
+            enabled = !state.isListening && !state.isAnswering && customer != null,
+        ) {
+          Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(18.dp))
+          Spacer(modifier = Modifier.width(6.dp))
+          Text("Ask by voice")
+        }
+        if (state.isListening) {
+          ElevatedButton(onClick = onStopListeningAndUsePartial) { Text("Use heard text") }
+          TextButton(onClick = onCancelListening) { Text("Cancel") }
+        }
+        TextButton(onClick = onEndSession) { Text("Clear") }
+      }
+
+      state.speechStatus?.let {
+        Text(
+            text = it,
+            color = AppColor.Yellow,
+            style = MaterialTheme.typography.labelSmall,
+        )
+      }
+
+      state.partialTranscript?.takeIf { it.isNotBlank() }?.let {
+        AssistantLine(label = if (state.isListening) "Live transcript" else "Heard", value = it)
+      }
+
+      state.lastQuestion?.takeIf { it.isNotBlank() && it != state.partialTranscript }?.let {
+        AssistantLine(label = "Customer asked", value = it)
+      }
+
+      if (state.isAnswering) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          CircularProgressIndicator(
+              modifier = Modifier.size(16.dp),
+              strokeWidth = 2.dp,
+              color = Color.White,
+          )
+          Spacer(modifier = Modifier.width(8.dp))
+          Text(
+              text = "Preparing RM guidance...",
+              color = Color.White.copy(alpha = 0.84f),
+              style = MaterialTheme.typography.bodySmall,
+          )
+        }
+      }
+
+      state.answer?.takeIf { it.isNotBlank() }?.let {
+        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+          AssistantLine(label = "Assistant", value = it)
+        }
+      }
+
+      state.error?.takeIf { it.isNotBlank() }?.let {
+        Text(
+            text = it,
+            color = AppColor.Yellow,
+            style = MaterialTheme.typography.bodySmall,
+        )
+      }
+    }
+  }
+}
+
+@Composable
+private fun AssistantLine(label: String, value: String) {
+  Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Text(
+        text = label,
+        color = AppColor.Yellow,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.SemiBold,
+    )
+    Text(
+        text = value,
+        color = Color.White.copy(alpha = 0.9f),
+        style = MaterialTheme.typography.bodySmall,
+    )
+  }
 }
 
 @Composable

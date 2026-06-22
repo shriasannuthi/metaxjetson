@@ -23,6 +23,10 @@ val localProperties =
     }
 val geminiApiKey =
     localProperties.getProperty("GEMINI_API_KEY", "").replace("\\", "\\\\").replace("\"", "\\\"")
+val gemmaModelId =
+    localProperties.getProperty("GEMMA_MODEL_ID", "gemma-3-27b-it")
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
 
 android {
   namespace = "com.meta.wearable.dat.externalsampleapps.cameraaccess"
@@ -43,6 +47,11 @@ android {
         "String",
         "GEMINI_API_KEY",
         "\"$geminiApiKey\"",
+    )
+    buildConfigField(
+        "String",
+        "GEMMA_MODEL_ID",
+        "\"$gemmaModelId\"",
     )
 
     // Meta Wearables Device Access Toolkit Setup

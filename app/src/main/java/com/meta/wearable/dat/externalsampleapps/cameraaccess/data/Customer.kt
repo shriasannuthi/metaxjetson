@@ -20,6 +20,7 @@ data class Customer(
   val faceImage: String,
   val lastVisit: String,
   val accounts: List<CustomerAccount> = emptyList(),
+  val transactions: List<CustomerTransaction> = emptyList(),
   val history: List<CustomerHistoryEntry> = emptyList(),
 )
 
@@ -27,6 +28,16 @@ data class CustomerAccount(
   val accountNumber: String = "",
   val type: String = "",
   val balance: String = "",
+  val status: String = "",
+)
+
+data class CustomerTransaction(
+  val id: String = "",
+  val date: String = "",
+  val description: String = "",
+  val category: String = "",
+  val amount: String = "",
+  val direction: String = "",
   val status: String = "",
 )
 

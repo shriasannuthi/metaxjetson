@@ -21,6 +21,35 @@
           "status": "Matures on 2026-09-18"
         }
       ],
+      "transactions": [
+        {
+          "id": "TXN-RH-001",
+          "date": "2026-06-18",
+          "description": "Salary credit from Meta Platforms India",
+          "category": "Salary",
+          "amount": "INR 4,85,000",
+          "direction": "Credit",
+          "status": "Settled"
+        },
+        {
+          "id": "TXN-RH-002",
+          "date": "2026-06-15",
+          "description": "Monthly SIP - Balanced Advantage Fund",
+          "category": "Investment",
+          "amount": "INR 75,000",
+          "direction": "Debit",
+          "status": "Settled"
+        },
+        {
+          "id": "TXN-RH-003",
+          "date": "2026-06-12",
+          "description": "Property valuation fee",
+          "category": "Home loan",
+          "amount": "INR 9,500",
+          "direction": "Debit",
+          "status": "Settled"
+        }
+      ],
       "history": [
         {
           "date": "2026-06-10",
@@ -53,6 +82,35 @@
           "type": "Fixed Deposit",
           "balance": "INR 7,50,000",
           "status": "Matures on 2026-09-18"
+        }
+      ],
+      "transactions": [
+        {
+          "id": "TXN-AR-001",
+          "date": "2026-06-18",
+          "description": "Salary credit from design consulting client",
+          "category": "Salary",
+          "amount": "INR 3,20,000",
+          "direction": "Credit",
+          "status": "Settled"
+        },
+        {
+          "id": "TXN-AR-002",
+          "date": "2026-06-16",
+          "description": "Rent payment",
+          "category": "Housing",
+          "amount": "INR 62,000",
+          "direction": "Debit",
+          "status": "Settled"
+        },
+        {
+          "id": "TXN-AR-003",
+          "date": "2026-06-13",
+          "description": "Credit card autopay",
+          "category": "Card payment",
+          "amount": "INR 1,18,450",
+          "direction": "Debit",
+          "status": "Settled"
         }
       ],
       "history": [
@@ -89,6 +147,35 @@
           "status": "Advisory review due"
         }
       ],
+      "transactions": [
+        {
+          "id": "TXN-EM-001",
+          "date": "2026-06-18",
+          "description": "Treasury sweep to overnight fund",
+          "category": "Treasury",
+          "amount": "INR 5,00,00,000",
+          "direction": "Debit",
+          "status": "Settled"
+        },
+        {
+          "id": "TXN-EM-002",
+          "date": "2026-06-17",
+          "description": "Portfolio dividend credit",
+          "category": "Investment income",
+          "amount": "INR 42,75,000",
+          "direction": "Credit",
+          "status": "Settled"
+        },
+        {
+          "id": "TXN-EM-003",
+          "date": "2026-06-14",
+          "description": "High-value outward transfer - senior approval completed",
+          "category": "Transfer",
+          "amount": "INR 2,25,00,000",
+          "direction": "Debit",
+          "status": "Approved"
+        }
+      ],
       "history": [
         {
           "date": "2026-06-04",
@@ -123,6 +210,35 @@
           "status": "Renewal due in 45 days"
         }
       ],
+      "transactions": [
+        {
+          "id": "TXN-SS-001",
+          "date": "2026-06-19",
+          "description": "Customer receivable from enterprise buyer",
+          "category": "Receivable",
+          "amount": "INR 12,40,000",
+          "direction": "Credit",
+          "status": "Settled"
+        },
+        {
+          "id": "TXN-SS-002",
+          "date": "2026-06-17",
+          "description": "Vendor payment - packaging supplier",
+          "category": "Vendor payment",
+          "amount": "INR 8,75,000",
+          "direction": "Debit",
+          "status": "Settled"
+        },
+        {
+          "id": "TXN-SS-003",
+          "date": "2026-06-15",
+          "description": "GST payment",
+          "category": "Tax",
+          "amount": "INR 3,18,500",
+          "direction": "Debit",
+          "status": "Settled"
+        }
+      ],
       "history": [
         {
           "date": "2026-06-04",
@@ -155,6 +271,35 @@
           "type": "Term Loan",
           "balance": "Outstanding INR 12,80,00,000",
           "status": "Quarterly review pending"
+        }
+      ],
+      "transactions": [
+        {
+          "id": "TXN-DT-001",
+          "date": "2026-06-18",
+          "description": "Hospitality revenue deposit",
+          "category": "Business income",
+          "amount": "INR 1,85,00,000",
+          "direction": "Credit",
+          "status": "Settled"
+        },
+        {
+          "id": "TXN-DT-002",
+          "date": "2026-06-16",
+          "description": "Term loan scheduled repayment",
+          "category": "Loan repayment",
+          "amount": "INR 68,00,000",
+          "direction": "Debit",
+          "status": "Settled"
+        },
+        {
+          "id": "TXN-DT-003",
+          "date": "2026-06-13",
+          "description": "Outward remittance review pending",
+          "category": "Compliance review",
+          "amount": "INR 2,10,00,000",
+          "direction": "Debit",
+          "status": "Pending senior approval"
         }
       ],
       "history": [
