@@ -61,18 +61,6 @@
           "type": "Relationship call",
           "notes": "Requested pre-approved loan limits, processing fee waiver options, and document checklist for income proof and property papers."
         }
-      ],
-      "conversationHistory": [
-        {
-          "role": "CUSTOMER",
-          "text": "What is my current premium savings account balance?",
-          "timestampMs": 1781896800000
-        },
-        {
-          "role": "ASSISTANT",
-          "text": "Your Premium Savings account ending in 1024 has a balance of INR 18,45,000.",
-          "timestampMs": 1781896815000
-        }
       ]
     },
     {
@@ -199,18 +187,6 @@
           "type": "Treasury discussion",
           "notes": "Requested faster approval workflow for large transfers and a single-page risk summary before market close."
         }
-      ],
-      "conversationHistory": [
-        {
-          "role": "CUSTOMER",
-          "text": "What was my last outbound transfer amount?",
-          "timestampMs": 1781378400000
-        },
-        {
-          "role": "ASSISTANT",
-          "text": "The last outbound transfer was a wire of INR 1,00,00,000 on June 4th.",
-          "timestampMs": 1781378420000
-        }
       ]
     },
     {
@@ -274,18 +250,6 @@
           "type": "Branch visit",
           "notes": "Discussed vendor payment delays, receivables cycle, and option to increase overdraft limit before seasonal inventory purchase."
         }
-      ],
-      "conversationHistory": [
-        {
-          "role": "CUSTOMER",
-          "text": "When is my overdraft account renewal due?",
-          "timestampMs": 1781378400000
-        },
-        {
-          "role": "ASSISTANT",
-          "text": "Your Overdraft renewal is due in 45 days from June 4th.",
-          "timestampMs": 1781378415000
-        }
       ]
     },
     {
@@ -348,18 +312,6 @@
           "date": "2026-05-19",
           "type": "Compliance note",
           "notes": "Flagged for senior approval workflow before new credit sanction or high-value outward remittance."
-        }
-      ],
-      "conversationHistory": [
-        {
-          "role": "CUSTOMER",
-          "text": "What is the outstanding on my Term Loan?",
-          "timestampMs": 1781378400000
-        },
-        {
-          "role": "ASSISTANT",
-          "text": "Your outstanding Term Loan balance is INR 12,80,00,000 with a quarterly review pending.",
-          "timestampMs": 1781378418000
         }
       ]
     }

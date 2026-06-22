@@ -95,7 +95,6 @@ dependencies {
   implementation(libs.androidx.material3)
   implementation(libs.kotlinx.collections.immutable)
   implementation(libs.mlkit.face.detection)
-  implementation(libs.mlkit.text.recognition)
   implementation(libs.mwdat.core)
   implementation(libs.mwdat.camera)
   implementation(libs.mwdat.mockdevice)

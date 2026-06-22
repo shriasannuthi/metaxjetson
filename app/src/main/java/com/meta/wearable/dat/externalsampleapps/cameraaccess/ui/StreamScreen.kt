@@ -42,7 +42,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.History
@@ -151,22 +150,6 @@ fun StreamScreen(
   var canvasMode by remember { mutableStateOf(StreamCanvasMode.IMMERSIVE) }
   var assistantDock by remember { mutableStateOf(AssistantDock.BOTTOM) }
   var isStreamHudExpanded by remember { mutableStateOf(false) }
-
-  val assistantViewModel: AssistantViewModel =
-      viewModel(
-          factory =
-              AssistantViewModel.Factory(
-                  application = (LocalActivity.current as ComponentActivity).application
-              )
-      )
-  val assistantUiState by assistantViewModel.uiState.collectAsStateWithLifecycle()
-  var isAssistantVisible by remember { mutableStateOf(false) }
-
-  LaunchedEffect(streamUiState.matchedCustomer) {
-    streamUiState.matchedCustomer?.let { customer ->
-      assistantViewModel.selectCustomer(customer)
-    }
-  }
 
   LaunchedEffect(Unit) { streamViewModel.startStream() }
   LaunchedEffect(streamUiState.matchedCustomer?.id) {
@@ -1083,56 +1066,6 @@ private fun ConversationStrip(turns: List<ConversationTurn>) {
 }
 
 @Composable
-private fun DocumentDetectionOverlay(
-    isCandidateVisible: Boolean,
-    isStable: Boolean,
-    score: Float,
-    status: String?,
-    modifier: Modifier = Modifier,
-) {
-  if (status.isNullOrBlank() && score <= 0f) return
-
-  Box(
-      modifier =
-          modifier
-              .fillMaxWidth(0.78f)
-              .background(Color.Black.copy(alpha = 0.58f), shape = RoundedCornerShape(8.dp))
-              .padding(8.dp)
-  ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-      Icon(
-          imageVector = Icons.Default.Description,
-          contentDescription = "Document detection",
-          tint =
-              when {
-                isStable -> AppColor.Green
-                isCandidateVisible -> AppColor.Yellow
-                else -> Color.White.copy(alpha = 0.72f)
-              },
-          modifier = Modifier.size(16.dp),
-      )
-      Spacer(modifier = Modifier.width(6.dp))
-      Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(
-            text = status ?: "Looking for document",
-            color = Color.White,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = "Local detector ${(score * 100).toInt()}%",
-            color = Color.White.copy(alpha = 0.76f),
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-      }
-    }
-  }
-}
-
-@Composable
 private fun VoiceCommandOverlay(
     isListening: Boolean,
     isAnalyzing: Boolean,
@@ -1296,7 +1229,6 @@ private fun CustomerRecognitionOverlay(
     customer: Customer?,
     isScanning: Boolean,
     status: String?,
-    onShowAssistant: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
   if (customer == null && status.isNullOrBlank() && !isScanning) return
@@ -1369,13 +1301,6 @@ private fun CustomerRecognitionOverlay(
               maxLines = 2,
           )
         }
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "Tap to chat with Assistant",
-            color = AppColor.Yellow,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-        )
       } else if (isScanning) {
         Row(verticalAlignment = Alignment.CenterVertically) {
           CircularProgressIndicator(
