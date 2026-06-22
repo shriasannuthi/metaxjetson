@@ -148,6 +148,7 @@ fun StreamScreen(
     DocumentAnalysisOverlay(
         analysis = streamUiState.documentAnalysis,
         isAnalyzing = streamUiState.isDocumentAnalyzing,
+        partialText = streamUiState.documentAnalysisPartial,
         onDismiss = { streamViewModel.dismissDocumentAnalysis() },
         modifier =
             Modifier.align(Alignment.BottomCenter)
@@ -314,6 +315,7 @@ private fun VoiceCommandOverlay(
 private fun DocumentAnalysisOverlay(
     analysis: DocumentAnalysisResult?,
     isAnalyzing: Boolean,
+    partialText: String?,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -356,18 +358,22 @@ private fun DocumentAnalysisOverlay(
       }
 
       if (isAnalyzing) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-          CircularProgressIndicator(
-              modifier = Modifier.size(16.dp),
-              strokeWidth = 2.dp,
-              color = Color.White,
-          )
-          Spacer(modifier = Modifier.width(8.dp))
-          Text(
-              text = "Analyzing document",
-              color = Color.White.copy(alpha = 0.84f),
-              style = MaterialTheme.typography.bodySmall,
-          )
+        partialText?.toLiveAnalysisText()?.takeIf { it.isNotBlank() }?.let {
+          AnalysisText(label = "Live", value = it)
+        } ?: run {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+                color = Color.White,
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Analyzing document",
+                color = Color.White.copy(alpha = 0.84f),
+                style = MaterialTheme.typography.bodySmall,
+            )
+          }
         }
       } else {
         if (analysis?.json == null) {
@@ -376,12 +382,18 @@ private fun DocumentAnalysisOverlay(
           analysis.json.stringValue("summary")?.let {
             AnalysisText(label = "Summary", value = it)
           }
-          analysis.json.stringValue("customerRelevance")?.let {
-            AnalysisText(label = "Customer", value = it)
+          val explanation =
+              analysis.json.stringValue("explanation")
+                  ?: analysis.json.stringValue("customerRelevance")
+          explanation?.let {
+            AnalysisText(label = "Explanation", value = it)
           }
-          analysis.json.objectValue("extractedFields")?.takeIf { it.size() > 0 }?.let {
-            AnalysisText(label = "Fields", value = it.toCompactDisplay())
-          }
+          val extractedFields = analysis.json.get("extractedFields")
+          extractedFields
+              ?.takeIf { !it.isJsonNull }
+              ?.toDisplayValue()
+              ?.takeIf { it.isNotBlank() }
+              ?.let { AnalysisText(label = "Fields", value = it) }
           analysis.json.arrayValue("riskFlags")?.takeIf { it.size() > 0 }?.let {
             AnalysisText(label = "Flags", value = it.toCompactDisplay())
           }
@@ -574,3 +586,42 @@ private fun JsonElement.toDisplayValue(): String =
       isJsonObject -> asJsonObject.toCompactDisplay()
       else -> toString()
     }
+
+private fun String.toLiveAnalysisText(): String {
+  val trimmed = trim()
+  return extractPartialJsonString("explanation")
+      ?: extractPartialJsonString("summary")
+      ?: trimmed
+          .removePrefix("{")
+          .replace(Regex("[{}\"]"), "")
+          .replace(",", "\n")
+          .trim()
+}
+
+private fun String.extractPartialJsonString(key: String): String? {
+  val start = indexOf("\"$key\"")
+  if (start < 0) return null
+  val colon = indexOf(':', start)
+  if (colon < 0) return null
+  val firstQuote = indexOf('"', colon + 1)
+  if (firstQuote < 0) return null
+
+  val builder = StringBuilder()
+  var index = firstQuote + 1
+  var escaping = false
+  while (index < length) {
+    val char = this[index]
+    if (escaping) {
+      builder.append(char)
+      escaping = false
+    } else if (char == '\\') {
+      escaping = true
+    } else if (char == '"') {
+      break
+    } else {
+      builder.append(char)
+    }
+    index++
+  }
+  return builder.toString().takeIf { it.isNotBlank() }
+}
