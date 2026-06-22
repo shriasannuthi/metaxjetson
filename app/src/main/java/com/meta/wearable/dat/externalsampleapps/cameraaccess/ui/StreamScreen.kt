@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material3.CircularProgressIndicator
@@ -118,6 +119,19 @@ fun StreamScreen(
             Modifier.align(Alignment.TopStart)
                 .padding(
                     top = if (streamUiState.audioFrameCount > 0) 128.dp else 80.dp,
+                    start = 24.dp,
+                ),
+    )
+
+    DocumentDetectionOverlay(
+        isCandidateVisible = streamUiState.isDocumentCandidateVisible,
+        isStable = streamUiState.isDocumentStable,
+        score = streamUiState.documentDetectionScore,
+        status = streamUiState.documentDetectionStatus,
+        modifier =
+            Modifier.align(Alignment.TopStart)
+                .padding(
+                    top = if (streamUiState.audioFrameCount > 0) 204.dp else 156.dp,
                     start = 24.dp,
                 ),
     )
@@ -222,6 +236,56 @@ fun StreamScreen(
             }
         )
     }
+}
+
+@Composable
+private fun DocumentDetectionOverlay(
+    isCandidateVisible: Boolean,
+    isStable: Boolean,
+    score: Float,
+    status: String?,
+    modifier: Modifier = Modifier,
+) {
+  if (status.isNullOrBlank() && score <= 0f) return
+
+  Box(
+      modifier =
+          modifier
+              .fillMaxWidth(0.78f)
+              .background(Color.Black.copy(alpha = 0.58f), shape = RoundedCornerShape(8.dp))
+              .padding(8.dp)
+  ) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Icon(
+          imageVector = Icons.Default.Description,
+          contentDescription = "Document detection",
+          tint =
+              when {
+                isStable -> AppColor.Green
+                isCandidateVisible -> AppColor.Yellow
+                else -> Color.White.copy(alpha = 0.72f)
+              },
+          modifier = Modifier.size(16.dp),
+      )
+      Spacer(modifier = Modifier.width(6.dp))
+      Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = status ?: "Looking for document",
+            color = Color.White,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = "Local detector ${(score * 100).toInt()}%",
+            color = Color.White.copy(alpha = 0.76f),
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+      }
+    }
+  }
 }
 
 @Composable
