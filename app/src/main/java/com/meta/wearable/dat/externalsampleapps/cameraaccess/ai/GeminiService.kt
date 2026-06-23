@@ -19,6 +19,8 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.BuildConfig
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.ConversationRole
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.ConversationTurn
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -41,6 +43,9 @@ class GeminiService(
       prompt: String,
       images: List<Bitmap> = emptyList(),
       onPartialText: (String) -> Unit = {},
+      responseMimeType: String? = null,
+      responseSchema: JsonObject? = null,
+      maxOutputTokens: Int = MAX_OUTPUT_TOKENS,
   ): String =
     withContext(Dispatchers.IO) {
       if (!isConfigured()) {
@@ -51,7 +56,16 @@ class GeminiService(
       val request =
           Request.Builder()
               .url("$GEMINI_ENDPOINT?alt=sse&key=$apiKey")
-              .post(buildRequestBody(prompt, images).toRequestBody(JSON_MEDIA_TYPE))
+              .post(
+                  buildRequestBody(
+                          prompt = prompt,
+                          images = images,
+                          responseMimeType = responseMimeType,
+                          responseSchema = responseSchema,
+                          maxOutputTokens = maxOutputTokens,
+                      )
+                      .toRequestBody(JSON_MEDIA_TYPE)
+              )
               .build()
 
       Log.d(TAG, "Posting Gemini request with ${images.size} image(s)")
@@ -89,6 +103,8 @@ class GeminiService(
             buildDocumentAnalysisPrompt(),
             listOf(documentBitmap),
             onPartialText = onPartialText,
+            responseMimeType = "application/json",
+            responseSchema = documentAnalysisSchema(),
         )
     val parsed = parseJsonOnly(responseJson)
     Log.i(
@@ -101,7 +117,31 @@ class GeminiService(
     return DocumentAnalysisResult(rawJson = responseJson, json = parsed)
   }
 
-  private fun buildRequestBody(prompt: String, images: List<Bitmap>): String {
+  suspend fun answerDocumentQuestion(
+      documentBitmap: Bitmap,
+      analysis: DocumentAnalysisResult,
+      question: String,
+      conversation: List<ConversationTurn>,
+  ): String {
+    Log.i(
+        TAG,
+        "Document question request: bitmap=${documentBitmap.width}x${documentBitmap.height}, questionChars=${question.length}, turns=${conversation.size}",
+    )
+    return postToGemini(
+            prompt = buildDocumentQuestionPrompt(analysis, question, conversation),
+            images = listOf(documentBitmap),
+            maxOutputTokens = DOCUMENT_QA_MAX_OUTPUT_TOKENS,
+        )
+        .trim()
+  }
+
+  private fun buildRequestBody(
+      prompt: String,
+      images: List<Bitmap>,
+      responseMimeType: String?,
+      responseSchema: JsonObject?,
+      maxOutputTokens: Int,
+  ): String {
     Log.d(
         TAG,
         "Building Gemini request: promptChars=${prompt.length}, imageSizes=${images.joinToString { "${it.width}x${it.height}" }}",
@@ -135,11 +175,11 @@ class GeminiService(
               "generationConfig",
               JsonObject().apply {
                 addProperty("candidateCount", 1)
-                addProperty("maxOutputTokens", MAX_OUTPUT_TOKENS)
+                addProperty("maxOutputTokens", maxOutputTokens)
                 addProperty("temperature", RESPONSE_TEMPERATURE)
                 addProperty("mediaResolution", MEDIA_RESOLUTION)
-                addProperty("responseMimeType", "application/json")
-                add("responseSchema", documentAnalysisSchema())
+                responseMimeType?.let { addProperty("responseMimeType", it) }
+                responseSchema?.let { add("responseSchema", it) }
               },
           )
         }
@@ -192,6 +232,72 @@ class GeminiService(
       Keep the response concise. Use empty arrays when there are no risk flags or actions.
     """.trimIndent()
   }
+
+  private fun buildDocumentQuestionPrompt(
+      analysis: DocumentAnalysisResult,
+      question: String,
+      conversation: List<ConversationTurn>,
+  ): String =
+      buildString {
+        appendLine("You are answering questions about one scanned smart-glasses document.")
+        appendLine("Use the attached scanned image as primary evidence.")
+        appendLine("Also use the document analysis context below.")
+        appendLine("Answer directly and crisply. Prefer 1-3 short bullets or 1 short paragraph.")
+        appendLine("Do not invent facts. If the document does not contain enough evidence, say exactly what is missing.")
+        appendLine()
+        appendLine("Initial document analysis:")
+        appendLine(analysis.toPromptContext())
+        if (conversation.isNotEmpty()) {
+          appendLine()
+          appendLine("Prior Q&A in this document session:")
+          conversation.takeLast(MAX_DOCUMENT_QA_TURNS).forEach { turn ->
+            val speaker =
+                when (turn.role) {
+                  ConversationRole.CUSTOMER -> "Question"
+                  ConversationRole.ASSISTANT -> "Answer"
+                }
+            appendLine("$speaker: ${turn.text}")
+          }
+        }
+        appendLine()
+        appendLine("Current question:")
+        appendLine(question)
+      }
+
+  private fun DocumentAnalysisResult.toPromptContext(): String {
+    val parsed = json
+    if (parsed == null) return rawJson.take(MAX_DOCUMENT_CONTEXT_CHARS)
+    return buildString {
+          parsed.stringField("documentType")?.let { appendLine("Document type: $it") }
+          parsed.stringField("summary")?.let { appendLine("Summary: $it") }
+          parsed.stringField("explanation")?.let { appendLine("Explanation: $it") }
+          parsed.get("extractedFields")?.takeIf { !it.isJsonNull }?.let {
+            appendLine("Extracted fields: ${it.toCompactPromptValue()}")
+          }
+          parsed.get("riskFlags")?.takeIf { !it.isJsonNull }?.let {
+            appendLine("Risk flags: ${it.toCompactPromptValue()}")
+          }
+          parsed.get("recommendedActions")?.takeIf { !it.isJsonNull }?.let {
+            appendLine("Recommended actions: ${it.toCompactPromptValue()}")
+          }
+        }
+        .ifBlank { rawJson }
+        .take(MAX_DOCUMENT_CONTEXT_CHARS)
+  }
+
+  private fun JsonObject.stringField(key: String): String? =
+      get(key)?.takeIf { it.isJsonPrimitive }?.asString?.takeIf { it.isNotBlank() }
+
+  private fun JsonElement.toCompactPromptValue(): String =
+      when {
+        isJsonPrimitive -> asString
+        isJsonArray -> asJsonArray.joinToString { it.toCompactPromptValue() }
+        isJsonObject ->
+            asJsonObject.entrySet().joinToString("; ") { (key, value) ->
+              "$key: ${value.toCompactPromptValue()}"
+            }
+        else -> toString()
+      }
 
   private fun documentAnalysisSchema(): JsonObject =
       JsonObject().apply {
@@ -293,9 +399,12 @@ class GeminiService(
     private const val JPEG_QUALITY = 65
     private const val MAX_IMAGE_SIDE_PX = 768
     private const val MAX_OUTPUT_TOKENS = 350
+    private const val DOCUMENT_QA_MAX_OUTPUT_TOKENS = 220
     private const val RESPONSE_TEMPERATURE = 0.2
     private const val MEDIA_RESOLUTION = "MEDIA_RESOLUTION_LOW"
     private const val MAX_LOG_RESPONSE_CHARS = 500
+    private const val MAX_DOCUMENT_QA_TURNS = 8
+    private const val MAX_DOCUMENT_CONTEXT_CHARS = 2_500
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     private val DEFAULT_HTTP_CLIENT =
         OkHttpClient.Builder()

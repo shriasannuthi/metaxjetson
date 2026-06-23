@@ -48,6 +48,9 @@ import com.meta.wearable.dat.externalsampleapps.cameraaccess.R
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.FaceRecognitionResult
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.FaceRecognitionService
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.GeminiService
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.AssistantSpeechListener
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.ConversationRole
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.ConversationTurn
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.wearables.WearablesViewModel
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -110,6 +113,8 @@ class StreamViewModel(
   private var faceRecognitionJob: Job? = null
   private var lastFaceRecognitionAtMs = 0L
   private var voiceCommandListener: VoiceCommandListener? = null
+  private var documentQuestionSpeechListener: AssistantSpeechListener? = null
+  private var documentSessionBitmap: Bitmap? = null
   private var stream: Stream? = null
   private var audioStream: AudioStream? = null
   private var previousDeviceSessionState: DeviceSessionState? = null
@@ -137,6 +142,7 @@ class StreamViewModel(
     faceRecognitionJob?.cancel()
     faceRecognitionJob = null
     stopVoiceCommandListener()
+    clearDocumentSession()
     lastFaceRecognitionAtMs = 0L
 
     // Reset audio recording buffer
@@ -284,6 +290,7 @@ class StreamViewModel(
     sessionStateJob = null
     faceRecognitionJob?.cancel()
     faceRecognitionJob = null
+    clearDocumentSession()
     stopVoiceCommandListener()
     lastFaceRecognitionAtMs = 0L
     presentationQueue?.stop()
@@ -487,7 +494,13 @@ class StreamViewModel(
       Log.d(TAG, trigger.busyLogMessage)
       return
     }
+    if (_uiState.value.isDocumentSessionActive && _uiState.value.documentAnalysis != null) {
+      Log.d(TAG, "Document session already active, ignoring scan request")
+      _uiState.update { it.copy(voiceCommandStatus = "End current document session before scanning") }
+      return
+    }
     _uiState.update { it.copy(voiceCommandStatus = trigger.requestedStatus) }
+    clearDocumentSession()
     captureAndAnalyzeDocument()
   }
 
@@ -519,8 +532,10 @@ class StreamViewModel(
       it.copy(
           isDocumentAnalyzing = true,
           isCapturing = true,
+          isDocumentSessionActive = true,
           documentAnalysisPartial = null,
           documentAnalysis = null,
+          documentQuestionStatus = "Scan in progress",
           voiceCommandStatus = "Capturing document",
       )
     }
@@ -563,12 +578,15 @@ class StreamViewModel(
             TAG,
             "Document analysis completed: analysisDurationMs=$analysisDurationMs, totalScanDurationMs=$totalDurationMs, parsed=${analysis.json != null}, rawChars=${analysis.rawJson.length}",
         )
+        documentSessionBitmap = documentBitmap
+        documentBitmap = null
         _uiState.update {
           it.copy(
               isDocumentAnalyzing = false,
               isCapturing = false,
               documentAnalysisPartial = null,
               documentAnalysis = analysis,
+              documentQuestionStatus = "Ask a question about this document",
               voiceCommandStatus = "Document analyzed",
           )
         }
@@ -583,7 +601,10 @@ class StreamViewModel(
           it.copy(
               isDocumentAnalyzing = false,
               isCapturing = false,
+              isDocumentSessionActive = false,
               documentAnalysisPartial = null,
+              documentQuestionStatus = null,
+              documentQuestionError = e.message ?: "Document analysis failed",
               voiceCommandStatus = e.message ?: "Document analysis failed",
           )
         }
@@ -594,7 +615,195 @@ class StreamViewModel(
   }
 
   fun dismissDocumentAnalysis() {
-    _uiState.update { it.copy(documentAnalysis = null) }
+    endDocumentSession()
+  }
+
+  fun startDocumentQuestionListening() {
+    val state = _uiState.value
+    if (!state.isDocumentSessionActive || state.documentAnalysis == null) {
+      _uiState.update { it.copy(documentQuestionError = "Scan a document before asking") }
+      return
+    }
+    if (state.isDocumentQuestionListening || state.isDocumentAnswering) {
+      Log.d(TAG, "Document Q&A already busy")
+      return
+    }
+    if (documentSessionBitmap == null) {
+      _uiState.update { it.copy(documentQuestionError = "Document image is no longer available") }
+      return
+    }
+
+    stopVoiceCommandListener()
+    documentQuestionSpeechListener?.stop(cancel = true)
+    documentQuestionSpeechListener =
+        AssistantSpeechListener(
+            context = getApplication<Application>(),
+            onReady = {
+              _uiState.update {
+                it.copy(
+                    isDocumentQuestionListening = true,
+                    documentQuestionStatus = "Listening for your question",
+                    documentQuestionPartial = null,
+                    documentQuestionError = null,
+                )
+              }
+            },
+            onPartialTranscript = { transcript ->
+              _uiState.update {
+                it.copy(
+                    isDocumentQuestionListening = true,
+                    documentQuestionStatus = "Capturing question",
+                    documentQuestionPartial = transcript,
+                    documentQuestionError = null,
+                )
+              }
+            },
+            onFinalTranscript = { transcript ->
+              documentQuestionSpeechListener = null
+              _uiState.update {
+                it.copy(
+                    isDocumentQuestionListening = false,
+                    documentQuestionStatus = "Question captured",
+                    documentQuestionPartial = transcript,
+                    documentLastQuestion = transcript,
+                    documentQuestionError = null,
+                )
+              }
+              resumeDocumentScanVoiceListener()
+              submitDocumentQuestion(transcript)
+            },
+            onError = { message ->
+              documentQuestionSpeechListener = null
+              _uiState.update {
+                it.copy(
+                    isDocumentQuestionListening = false,
+                    documentQuestionStatus = null,
+                    documentQuestionError = message,
+                )
+              }
+              resumeDocumentScanVoiceListener()
+            },
+        )
+    documentQuestionSpeechListener?.start()
+  }
+
+  fun stopDocumentQuestionListeningAndUsePartial() {
+    documentQuestionSpeechListener?.stop(cancel = false)
+  }
+
+  fun cancelDocumentQuestionListening() {
+    documentQuestionSpeechListener?.stop(cancel = true)
+    documentQuestionSpeechListener = null
+    _uiState.update {
+      it.copy(
+          isDocumentQuestionListening = false,
+          documentQuestionStatus = "Question cancelled",
+          documentQuestionPartial = null,
+      )
+    }
+    resumeDocumentScanVoiceListener()
+  }
+
+  fun endDocumentSession() {
+    clearDocumentSession()
+    resumeDocumentScanVoiceListener()
+  }
+
+  private fun submitDocumentQuestion(question: String) {
+    val cleanedQuestion = question.trim()
+    if (cleanedQuestion.isBlank()) return
+    val bitmap = documentSessionBitmap
+    val analysis = _uiState.value.documentAnalysis
+    if (bitmap == null || analysis == null) {
+      _uiState.update { it.copy(documentQuestionError = "Document session is not available") }
+      return
+    }
+    val conversation = _uiState.value.documentConversation
+    _uiState.update {
+      it.copy(
+          isDocumentAnswering = true,
+          documentQuestionError = null,
+          documentAnswer = null,
+          documentLastQuestion = cleanedQuestion,
+          documentConversation =
+              it.documentConversation + ConversationTurn(ConversationRole.CUSTOMER, cleanedQuestion),
+      )
+    }
+
+    viewModelScope.launch {
+      val questionBitmap =
+          try {
+            bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, false)
+          } catch (e: Exception) {
+            Log.w(TAG, "Unable to copy document image for question", e)
+            _uiState.update {
+              it.copy(
+                  isDocumentAnswering = false,
+                  documentQuestionError = "Document image is no longer available",
+              )
+            }
+            return@launch
+          }
+      try {
+        val answer =
+            geminiService.answerDocumentQuestion(
+                documentBitmap = questionBitmap,
+                analysis = analysis,
+                question = cleanedQuestion,
+                conversation = conversation,
+            )
+        _uiState.update {
+          if (!it.isDocumentSessionActive) return@update it
+          it.copy(
+              isDocumentAnswering = false,
+              documentAnswer = answer,
+              documentQuestionStatus = "Answered",
+              documentConversation =
+                  it.documentConversation + ConversationTurn(ConversationRole.ASSISTANT, answer),
+          )
+        }
+      } catch (e: Exception) {
+        Log.w(TAG, "Document question failed", e)
+        _uiState.update {
+          if (!it.isDocumentSessionActive) return@update it
+          it.copy(
+              isDocumentAnswering = false,
+              documentQuestionError = e.message ?: "Document question failed",
+          )
+        }
+      } finally {
+        questionBitmap.recycle()
+      }
+    }
+  }
+
+  private fun clearDocumentSession() {
+    documentQuestionSpeechListener?.stop(cancel = true)
+    documentQuestionSpeechListener = null
+    documentSessionBitmap?.recycle()
+    documentSessionBitmap = null
+    _uiState.update {
+      it.copy(
+          isDocumentSessionActive = false,
+          isDocumentAnalyzing = false,
+          documentAnalysisPartial = null,
+          documentAnalysis = null,
+          isDocumentQuestionListening = false,
+          documentQuestionStatus = null,
+          documentQuestionPartial = null,
+          documentLastQuestion = null,
+          documentAnswer = null,
+          isDocumentAnswering = false,
+          documentQuestionError = null,
+          documentConversation = emptyList(),
+      )
+    }
+  }
+
+  private fun resumeDocumentScanVoiceListener() {
+    if (_uiState.value.streamState == StreamState.STREAMING && voiceCommandListener == null) {
+      startVoiceCommandListener()
+    }
   }
 
   fun showShareDialog() {
