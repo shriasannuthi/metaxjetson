@@ -79,6 +79,20 @@ class StreamViewModel(
     private const val MAX_PARTIAL_RESPONSE_CHARS = 900
   }
 
+  private enum class DocumentScanTrigger(
+      val requestedStatus: String,
+      val busyLogMessage: String,
+  ) {
+    VOICE(
+        requestedStatus = "Scan command detected",
+        busyLogMessage = "Document scan already in progress, ignoring voice command",
+    ),
+    BUTTON(
+        requestedStatus = "Manual scan requested",
+        busyLogMessage = "Document scan already in progress, ignoring manual request",
+    ),
+  }
+
   private val deviceSelector: DeviceSelector = wearablesViewModel.deviceSelector
   private val geminiService: GeminiService = GeminiService(application)
   private val faceRecognitionService: FaceRecognitionService = FaceRecognitionService(application)
@@ -191,7 +205,7 @@ class StreamViewModel(
           stream?.stop()
           stream = null
           session
-              ?.addStream(StreamConfiguration(videoQuality = VideoQuality.MEDIUM, frameRate = 24))
+              ?.addStream(StreamConfiguration(videoQuality = VideoQuality.HIGH, frameRate = 15))
               ?.onSuccess { addedStream ->
                 stream = addedStream
                 videoJob = viewModelScope.launch {
@@ -456,29 +470,28 @@ class StreamViewModel(
 
   private fun handleVoiceScanCommand() {
     Log.i(TAG, "Voice scan command detected")
+    requestDocumentScan(DocumentScanTrigger.VOICE)
+  }
+
+  fun scanDocument() {
+    Log.i(TAG, "Manual document scan requested")
+    requestDocumentScan(DocumentScanTrigger.BUTTON)
+  }
+
+  private fun requestDocumentScan(trigger: DocumentScanTrigger) {
     Log.i(
         TAG,
         "Document scan trigger state: stream=${_uiState.value.streamState}, isCapturing=${_uiState.value.isCapturing}, isAnalyzing=${_uiState.value.isDocumentAnalyzing}, hasFrame=${_uiState.value.videoFrame != null}",
     )
     if (_uiState.value.isDocumentAnalyzing || _uiState.value.isCapturing) {
-      Log.d(TAG, "Document scan already in progress, ignoring voice command")
+      Log.d(TAG, trigger.busyLogMessage)
       return
     }
-    _uiState.update { it.copy(voiceCommandStatus = "Scan command detected") }
-    snapshotAndAnalyzeDocument()
+    _uiState.update { it.copy(voiceCommandStatus = trigger.requestedStatus) }
+    captureAndAnalyzeDocument()
   }
 
-  fun scanDocument() {
-    Log.i(TAG, "Manual document scan requested")
-    if (_uiState.value.isDocumentAnalyzing || _uiState.value.isCapturing) {
-      Log.d(TAG, "Document scan already in progress, ignoring manual request")
-      return
-    }
-    _uiState.update { it.copy(voiceCommandStatus = "Manual scan requested") }
-    snapshotAndAnalyzeDocument()
-  }
-
-  private fun snapshotAndAnalyzeDocument() {
+  private fun captureAndAnalyzeDocument() {
     Log.i(TAG, "Document scan flow starting")
     if (uiState.value.streamState != StreamState.STREAMING) {
       Log.w(TAG, "Cannot scan document: stream not active (state=${uiState.value.streamState})")
@@ -494,17 +507,10 @@ class StreamViewModel(
       return
     }
 
-    val currentFrame = _uiState.value.videoFrame
-    val documentBitmap =
-        try {
-          currentFrame?.copy(currentFrame.config ?: Bitmap.Config.ARGB_8888, false)
-        } catch (e: Exception) {
-          Log.w(TAG, "Unable to copy stream frame for document scan", e)
-          null
-        }
-    if (documentBitmap == null) {
-      Log.w(TAG, "Cannot scan document: no stream frame is available")
-      _uiState.update { it.copy(voiceCommandStatus = "No stream frame available") }
+    val activeStream = stream
+    if (activeStream == null) {
+      Log.w(TAG, "Cannot scan document: stream object is not available")
+      _uiState.update { it.copy(voiceCommandStatus = "Stream not ready") }
       return
     }
 
@@ -512,18 +518,38 @@ class StreamViewModel(
     _uiState.update {
       it.copy(
           isDocumentAnalyzing = true,
+          isCapturing = true,
           documentAnalysisPartial = null,
           documentAnalysis = null,
-          voiceCommandStatus = "Analyzing document",
+          voiceCommandStatus = "Capturing document",
       )
     }
 
     viewModelScope.launch(Dispatchers.IO) {
+      var documentBitmap: Bitmap? = null
       try {
+        val captureStartedAtMs = SystemClock.elapsedRealtime()
+        Log.i(TAG, "Capturing document photo for analysis")
+        val photoData =
+            activeStream
+                .capturePhoto()
+                .onFailure { error, _ ->
+                  throw IOException("Document capture failed: ${error.description}")
+                }
+                .getOrNull()
+                ?: throw IOException("Document capture returned no data")
+        val captureDurationMs = SystemClock.elapsedRealtime() - captureStartedAtMs
+        documentBitmap = decodePhotoData(photoData)
+        Log.i(
+            TAG,
+            "Document photo captured: bitmap=${documentBitmap.width}x${documentBitmap.height}, captureDurationMs=$captureDurationMs",
+        )
+        _uiState.update { it.copy(voiceCommandStatus = "Analyzing document") }
+
         val analysisStartedAtMs = SystemClock.elapsedRealtime()
         Log.i(
             TAG,
-            "Starting document analysis from stream snapshot: bitmap=${documentBitmap.width}x${documentBitmap.height}",
+            "Starting document analysis from captured photo: bitmap=${documentBitmap.width}x${documentBitmap.height}",
         )
         val analysis =
             geminiService.analyzeDocument(documentBitmap) { partialText ->
@@ -540,6 +566,7 @@ class StreamViewModel(
         _uiState.update {
           it.copy(
               isDocumentAnalyzing = false,
+              isCapturing = false,
               documentAnalysisPartial = null,
               documentAnalysis = analysis,
               voiceCommandStatus = "Document analyzed",
@@ -555,12 +582,13 @@ class StreamViewModel(
         _uiState.update {
           it.copy(
               isDocumentAnalyzing = false,
+              isCapturing = false,
               documentAnalysisPartial = null,
               voiceCommandStatus = e.message ?: "Document analysis failed",
           )
         }
       } finally {
-        documentBitmap.recycle()
+        documentBitmap?.recycle()
       }
     }
   }
