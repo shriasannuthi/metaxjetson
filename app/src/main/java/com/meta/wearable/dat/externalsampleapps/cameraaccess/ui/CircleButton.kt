@@ -21,7 +21,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.R
@@ -35,7 +34,11 @@ fun CircleButton(
   Button(
       modifier = modifier.aspectRatio(1f),
       onClick = onClick,
-      colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+      colors =
+          ButtonDefaults.buttonColors(
+              containerColor = AppColor.WarmPanel,
+              contentColor = AppColor.WfDeepRed,
+          ),
       shape = CircleShape,
       contentPadding = PaddingValues(0.dp),
       content = content,
@@ -48,7 +51,7 @@ fun CaptureButton(onClick: () -> Unit) {
     Icon(
         imageVector = Icons.Filled.PhotoCamera,
         contentDescription = stringResource(R.string.capture_photo),
-        tint = Color.Black,
+        tint = AppColor.WfDeepRed,
     )
   }
 }
@@ -59,7 +62,7 @@ fun ScanDocumentButton(onClick: () -> Unit) {
     Icon(
         imageVector = Icons.Filled.DocumentScanner,
         contentDescription = "Scan document",
-        tint = Color.Black,
+        tint = AppColor.WfDeepRed,
     )
   }
 }
@@ -70,7 +73,7 @@ fun VoiceTestButton(onClick: () -> Unit) {
     Icon(
         imageVector = Icons.Filled.Mic,
         contentDescription = "Test voice input",
-        tint = Color.Black,
+        tint = AppColor.WfDeepRed,
     )
   }
 }

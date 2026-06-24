@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2" project="cameraaccess">
+    <string name="app_name" description="Application name">WF Meta</string>
 
     <!-- Home Screen -->
     <string name="register_button_title" description="Connect App">Connect my glasses</string>
@@ -8,26 +9,26 @@
     <string name="update_dat_app_button_title" description="Open DAT app update on glasses">Update app on glasses</string>
     <string name="stream_button_title" description="Start streaming">Start streaming</string>
     <string name="stop_stream_button_title" description="Stop streaming">Stop streaming</string>
-    <string name="home_tip_video_title" description="Tip title about video capture">Video Capture</string>
-    <string name="home_tip_audio_title" description="Tip title about audio">Open-Ear Audio</string>
-    <string name="home_tip_hands_title" description="Tip title about hands free">Enjoy On-the-Go</string>
-    <string name="home_tip_video" description="Tip about video capture">Record videos directly from your glasses, from your point of view.</string>
-    <string name="home_tip_audio" description="Tip about audio">Hear notifications while keeping your ears open to the world around you.</string>
-    <string name="home_tip_hands" description="Tip about hands free">Stay hands-free while you move through your day. Move freely, stay connected.</string>
-    <string name="home_redirect_message" description="Redirect message">You\'ll be redirected to the Meta AI app to confirm your connection.</string>
+    <string name="home_tip_video_title" description="Tip title about video capture">Live customer view</string>
+    <string name="home_tip_audio_title" description="Tip title about audio">Voice-assisted service</string>
+    <string name="home_tip_hands_title" description="Tip title about hands free">Document intelligence</string>
+    <string name="home_tip_video" description="Tip about video capture">Use Meta glasses to start a live field-of-view session for customer support.</string>
+    <string name="home_tip_audio" description="Tip about audio">Capture spoken customer questions and receive concise RM guidance.</string>
+    <string name="home_tip_hands" description="Tip about hands free">Scan customer documents and ask follow-up questions in the same session.</string>
+    <string name="home_redirect_message" description="Redirect message">WF Meta will open the Meta AI app to confirm your glasses connection.</string>
 
     <!-- Stream Screen -->
     <string name="live_stream" description="Live Stream">Live stream</string>
 
     <!-- Non Stream Screen -->
-    <string name="camera_access_icon_description" description="Camera Access icon description">Camera Access icon</string>
-    <string name="non_stream_screen_description" description="Non stream screen description">Tap the Start streaming button to stream video from your glasses or use the camera button to take a photo from your glasses.</string>
-    <string name="non_stream_screen_title" description="Non stream screen title">Stream Your Glasses Camera</string>
+    <string name="camera_access_icon_description" description="WF Meta icon description">WF Meta icon</string>
+    <string name="non_stream_screen_description" description="Non stream screen description">Start a secure glasses stream for customer recognition, RM guidance, and document scan Q&amp;A.</string>
+    <string name="non_stream_screen_title" description="Non stream screen title">WF Meta readiness</string>
     <string name="waiting_for_active_device" description="Waiting for active device message">Waiting for an active device</string>
     <string name="update_required_title" description="Update required warning title">Update required</string>
-    <string name="update_required_firmware_message" description="Firmware update required warning">Your glasses firmware needs an update before Camera Access can start.</string>
-    <string name="update_required_dat_app_message" description="DAT app update required warning">The app on your glasses needs an update before Camera Access can start.</string>
-    <string name="update_required_both_message" description="Firmware and DAT app update required warning">Your glasses firmware and app need updates before Camera Access can start.</string>
+    <string name="update_required_firmware_message" description="Firmware update required warning">Your glasses firmware needs an update before WF Meta can start.</string>
+    <string name="update_required_dat_app_message" description="DAT app update required warning">The app on your glasses needs an update before WF Meta can start.</string>
+    <string name="update_required_both_message" description="Firmware and DAT app update required warning">Your glasses firmware and app need updates before WF Meta can start.</string>
 
     <!-- SharePhotoDialog -->
     <string name="photo_captured" description="Photo Captured">Photo Captured</string>
@@ -72,15 +73,15 @@
     <string name="unfolded" description="Unfolded toggle label">Unfolded</string>
 
     <!-- Camera Permission Alert -->
-    <string name="camera_permission_alert_title" description="Camera permission alert title">Camera Access Required</string>
-    <string name="camera_permission_alert_message" description="Camera permission alert message">Camera access was denied. Please enable it in Settings to use the camera source.</string>
+    <string name="camera_permission_alert_title" description="Camera permission alert title">WF Meta camera access required</string>
+    <string name="camera_permission_alert_message" description="Camera permission alert message">Glasses camera permission was denied. Please enable it in Settings to use the stream.</string>
     <string name="camera_permission_open_settings" description="Camera permission open settings button">Open Settings</string>
     <string name="camera_permission_cancel" description="Camera permission cancel button">Cancel</string>
 
     <!-- Getting Started Sheet -->
     <string name="getting_started_title" description="Getting Started sheet title">Getting started</string>
-    <string name="getting_started_tip_permission" description="Tip about camera permission">First, Camera Access needs permission to use your glasses camera.</string>
+    <string name="getting_started_tip_permission" description="Tip about camera permission">First, WF Meta needs permission to use your glasses camera.</string>
     <string name="getting_started_tip_led" description="Tip about capture LED">The capture LED lets others know when you\'re capturing content or going live.</string>
-    <string name="getting_started_tip_photo" description="Tip about photo capture">Capture photos by tapping the camera button.</string>
+    <string name="getting_started_tip_photo" description="Tip about photo capture">Capture photos or scan documents from the stream toolbar.</string>
     <string name="getting_started_continue" description="Continue button">Continue</string>
 </resources>

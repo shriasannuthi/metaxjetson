@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -183,7 +184,7 @@ fun StreamScreen(
               .fillMaxSize()
               .background(
                   Brush.verticalGradient(
-                      listOf(Color(0xFF071018), Color(0xFF101318), Color(0xFF17231F)),
+                      listOf(Color(0xFF2A0808), AppColor.WfDeepRed, Color(0xFF1F1F1F)),
                   ),
               )
   ) {
@@ -211,6 +212,12 @@ fun StreamScreen(
         isExpanded = isStreamHudExpanded,
         onToggleExpanded = { isStreamHudExpanded = !isStreamHudExpanded },
         modifier = Modifier.align(Alignment.TopStart).padding(top = 54.dp, start = 16.dp),
+    )
+
+    WfBrandMark(
+        size = 44.dp,
+        showProductName = false,
+        modifier = Modifier.align(Alignment.TopEnd).padding(top = 54.dp, end = 16.dp),
     )
 
     DocumentSessionOverlay(
@@ -257,7 +264,7 @@ fun StreamScreen(
                   .navigationBarsPadding()
                   .fillMaxWidth()
                   .height(64.dp)
-                  .background(AppColor.Glass, RoundedCornerShape(28.dp))
+                  .background(AppColor.StreamGlass, RoundedCornerShape(28.dp))
                   .padding(6.dp),
           horizontalArrangement = Arrangement.spacedBy(6.dp),
           verticalAlignment = Alignment.CenterVertically,
@@ -546,13 +553,18 @@ private fun StreamWindowControls(
       horizontalAlignment = Alignment.End,
       verticalArrangement = Arrangement.spacedBy(10.dp),
   ) {
-    FloatingActionButton(onClick = onOpenAssistant) {
+    FloatingActionButton(
+        onClick = onOpenAssistant,
+        containerColor = AppColor.WfRed,
+        contentColor = Color.White,
+        elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp),
+    ) {
       Icon(
           imageVector = Icons.Default.SupportAgent,
           contentDescription = "Open RM voice assistant",
       )
     }
-    Surface(shape = RoundedCornerShape(28.dp), color = AppColor.Glass) {
+    Surface(shape = RoundedCornerShape(28.dp), color = AppColor.StreamGlass) {
       Row(modifier = Modifier.padding(6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         IconButton(onClick = { onCanvasModeChanged(canvasMode.next()) }, modifier = Modifier.size(42.dp)) {
           Icon(
