@@ -105,6 +105,7 @@ import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.Assistant
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.AssistantViewModel
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.ConversationTurn
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.data.Customer
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.stream.DocumentScanPhase
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.stream.StreamViewModel
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.wearables.WearablesViewModel
 import kotlinx.coroutines.delay
@@ -165,8 +166,12 @@ fun StreamScreen(
       }
     }
   }
-  LaunchedEffect(assistantUiState.isListening) {
-    if (!assistantUiState.isListening && didPauseVoiceCommandsForAssistant) {
+  LaunchedEffect(assistantUiState.isListening, assistantUiState.isAnswering) {
+    val isCustomerQnaOngoing = assistantUiState.isListening || assistantUiState.isAnswering
+    if (isCustomerQnaOngoing && !didPauseVoiceCommandsForAssistant) {
+      streamViewModel.pauseVoiceCommandsForAssistant()
+      didPauseVoiceCommandsForAssistant = true
+    } else if (!isCustomerQnaOngoing && didPauseVoiceCommandsForAssistant) {
       streamViewModel.resumeVoiceCommandsAfterAssistant()
       didPauseVoiceCommandsForAssistant = false
     }
@@ -211,6 +216,7 @@ fun StreamScreen(
     DocumentSessionOverlay(
         analysis = streamUiState.documentAnalysis,
         isAnalyzing = streamUiState.isDocumentAnalyzing,
+        scanPhase = streamUiState.documentScanPhase,
         partialText = streamUiState.documentAnalysisPartial,
         scanStatus = streamUiState.documentQuestionStatus,
         isSessionActive = streamUiState.isDocumentSessionActive,
@@ -225,6 +231,7 @@ fun StreamScreen(
         onStartListening = { streamViewModel.startDocumentQuestionListening() },
         onStopListeningAndUsePartial = { streamViewModel.stopDocumentQuestionListeningAndUsePartial() },
         onCancelListening = { streamViewModel.cancelDocumentQuestionListening() },
+        onRetryScan = { streamViewModel.retryDocumentScan() },
         onEndSession = { streamViewModel.endDocumentSession() },
         modifier =
             Modifier.align(Alignment.Center)
@@ -288,7 +295,7 @@ fun StreamScreen(
           state = assistantUiState,
           onDismiss = {
             assistantViewModel.cancelListening()
-            if (didPauseVoiceCommandsForAssistant) {
+            if (didPauseVoiceCommandsForAssistant && !assistantUiState.isAnswering) {
               streamViewModel.resumeVoiceCommandsAfterAssistant()
               didPauseVoiceCommandsForAssistant = false
             }
@@ -1129,6 +1136,7 @@ private fun VoiceCommandOverlay(
 private fun DocumentSessionOverlay(
     analysis: DocumentAnalysisResult?,
     isAnalyzing: Boolean,
+    scanPhase: DocumentScanPhase,
     partialText: String?,
     scanStatus: String?,
     isSessionActive: Boolean,
@@ -1143,6 +1151,7 @@ private fun DocumentSessionOverlay(
     onStartListening: () -> Unit,
     onStopListeningAndUsePartial: () -> Unit,
     onCancelListening: () -> Unit,
+    onRetryScan: () -> Unit,
     onEndSession: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1155,12 +1164,14 @@ private fun DocumentSessionOverlay(
     DocumentAnalysisPanel(
         analysis = analysis,
         isAnalyzing = isAnalyzing,
+        scanPhase = scanPhase,
         partialText = partialText,
         scanStatus = scanStatus,
         modifier = Modifier.fillMaxWidth().weight(1f),
     )
     DocumentQuestionPanel(
         analysisReady = analysis != null && !isAnalyzing,
+        scanFailed = scanPhase == DocumentScanPhase.FAILED,
         isListening = isQuestionListening,
         status = questionStatus,
         partialQuestion = partialQuestion,
@@ -1172,6 +1183,7 @@ private fun DocumentSessionOverlay(
         onStartListening = onStartListening,
         onStopListeningAndUsePartial = onStopListeningAndUsePartial,
         onCancelListening = onCancelListening,
+        onRetryScan = onRetryScan,
         onEndSession = onEndSession,
         modifier = Modifier.fillMaxWidth().weight(1f),
     )
@@ -1182,6 +1194,7 @@ private fun DocumentSessionOverlay(
 private fun DocumentAnalysisPanel(
     analysis: DocumentAnalysisResult?,
     isAnalyzing: Boolean,
+    scanPhase: DocumentScanPhase,
     partialText: String?,
     scanStatus: String?,
     modifier: Modifier = Modifier,
@@ -1204,7 +1217,9 @@ private fun DocumentAnalysisPanel(
           overflow = TextOverflow.Ellipsis,
       )
 
-      if (isAnalyzing) {
+      if (scanPhase == DocumentScanPhase.FAILED) {
+        AnalysisText(label = "Status", value = scanStatus ?: "Scan failed")
+      } else if (isAnalyzing) {
         partialText?.toLiveAnalysisText()?.takeIf { it.isNotBlank() }?.let {
           AnalysisText(label = scanStatus ?: "Live", value = it)
         } ?: run {
@@ -1248,6 +1263,7 @@ private fun DocumentAnalysisPanel(
 @Composable
 private fun DocumentQuestionPanel(
     analysisReady: Boolean,
+    scanFailed: Boolean,
     isListening: Boolean,
     status: String?,
     partialQuestion: String?,
@@ -1259,6 +1275,7 @@ private fun DocumentQuestionPanel(
     onStartListening: () -> Unit,
     onStopListeningAndUsePartial: () -> Unit,
     onCancelListening: () -> Unit,
+    onRetryScan: () -> Unit,
     onEndSession: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1291,11 +1308,13 @@ private fun DocumentQuestionPanel(
 
       DocumentQuestionActions(
           analysisReady = analysisReady,
+          scanFailed = scanFailed,
           isListening = isListening,
           isAnswering = isAnswering,
           onStartListening = onStartListening,
           onStopListeningAndUsePartial = onStopListeningAndUsePartial,
           onCancelListening = onCancelListening,
+          onRetryScan = onRetryScan,
       )
 
       Column(
@@ -1303,6 +1322,13 @@ private fun DocumentQuestionPanel(
           verticalArrangement = Arrangement.spacedBy(8.dp),
       ) {
         when {
+          scanFailed -> {
+            Text(
+                text = error ?: "Could not read document. Retry the scan or end this session.",
+                color = AppColor.Red,
+                style = MaterialTheme.typography.bodySmall,
+            )
+          }
           !analysisReady -> {
             Row(verticalAlignment = Alignment.CenterVertically) {
               CircularProgressIndicator(
@@ -1351,7 +1377,7 @@ private fun DocumentQuestionPanel(
         lastQuestion?.takeIf { it.isNotBlank() && it != partialQuestion }?.let {
           AnalysisText(label = "Last question", value = it)
         }
-        error?.takeIf { it.isNotBlank() }?.let {
+        error?.takeIf { it.isNotBlank() && !scanFailed }?.let {
           Text(text = it, color = AppColor.Red, style = MaterialTheme.typography.bodySmall)
         }
         DocumentConversationStrip(turns = conversation.takeLast(4))
@@ -1363,25 +1389,38 @@ private fun DocumentQuestionPanel(
 @Composable
 private fun DocumentQuestionActions(
     analysisReady: Boolean,
+    scanFailed: Boolean,
     isListening: Boolean,
     isAnswering: Boolean,
     onStartListening: () -> Unit,
     onStopListeningAndUsePartial: () -> Unit,
     onCancelListening: () -> Unit,
+    onRetryScan: () -> Unit,
 ) {
   Row(
       modifier = Modifier.fillMaxWidth(),
       horizontalArrangement = Arrangement.spacedBy(8.dp),
       verticalAlignment = Alignment.CenterVertically,
   ) {
-    Button(
-        onClick = onStartListening,
-        enabled = analysisReady && !isListening && !isAnswering,
-        modifier = Modifier.weight(1f),
-    ) {
-      Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(14.dp))
-      Spacer(modifier = Modifier.width(4.dp))
-      Text("Ask")
+    if (scanFailed) {
+      Button(
+          onClick = onRetryScan,
+          modifier = Modifier.weight(1f),
+      ) {
+        Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(14.dp))
+        Spacer(modifier = Modifier.width(4.dp))
+        Text("Retry scan")
+      }
+    } else {
+      Button(
+          onClick = onStartListening,
+          enabled = analysisReady && !isListening && !isAnswering,
+          modifier = Modifier.weight(1f),
+      ) {
+        Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(14.dp))
+        Spacer(modifier = Modifier.width(4.dp))
+        Text("Ask")
+      }
     }
     if (isListening) {
       TextButton(onClick = onStopListeningAndUsePartial) {

@@ -63,6 +63,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @SuppressLint("AutoCloseableUse")
@@ -80,6 +81,7 @@ class StreamViewModel(
     private const val VOICE_SCAN_COMMAND = "hey meta scan"
     private const val ENABLE_RAW_AUDIO_RECORDING = false
     private const val MAX_PARTIAL_RESPONSE_CHARS = 900
+    private const val DOCUMENT_QA_MIC_HANDOFF_DELAY_MS = 400L
   }
 
   private enum class DocumentScanTrigger(
@@ -114,6 +116,7 @@ class StreamViewModel(
   private var lastFaceRecognitionAtMs = 0L
   private var voiceCommandListener: VoiceCommandListener? = null
   private var documentQuestionSpeechListener: AssistantSpeechListener? = null
+  private var documentQuestionStartJob: Job? = null
   private var documentSessionText: String? = null
   private var stream: Stream? = null
   private var audioStream: AudioStream? = null
@@ -301,6 +304,7 @@ class StreamViewModel(
           isFaceRecognitionRunning = false,
           isVoiceCommandListening = false,
           isDocumentAnalyzing = false,
+          documentScanPhase = DocumentScanPhase.IDLE,
           documentAnalysisPartial = null,
       )
     }
@@ -485,6 +489,11 @@ class StreamViewModel(
     requestDocumentScan(DocumentScanTrigger.BUTTON)
   }
 
+  fun retryDocumentScan() {
+    Log.i(TAG, "Retry document scan requested")
+    requestDocumentScan(DocumentScanTrigger.BUTTON)
+  }
+
   private fun requestDocumentScan(trigger: DocumentScanTrigger) {
     Log.i(
         TAG,
@@ -499,6 +508,8 @@ class StreamViewModel(
       _uiState.update { it.copy(voiceCommandStatus = "End current document session before scanning") }
       return
     }
+    stopVoiceCommandListener()
+    Log.i(TAG, "Document session mic policy: hey-meta listener stopped")
     _uiState.update { it.copy(voiceCommandStatus = trigger.requestedStatus) }
     clearDocumentSession()
     captureAndAnalyzeDocument()
@@ -531,6 +542,7 @@ class StreamViewModel(
     _uiState.update {
       it.copy(
           isDocumentAnalyzing = true,
+          documentScanPhase = DocumentScanPhase.CAPTURING,
           isCapturing = true,
           isDocumentSessionActive = true,
           documentAnalysisPartial = null,
@@ -562,8 +574,9 @@ class StreamViewModel(
         )
         _uiState.update {
           it.copy(
+              documentScanPhase = DocumentScanPhase.GROUNDING,
               voiceCommandStatus = "Reading document",
-              documentQuestionStatus = "Reading document text",
+              documentQuestionStatus = "Reading document",
           )
         }
 
@@ -585,6 +598,7 @@ class StreamViewModel(
         documentSessionText = groundedText
         _uiState.update {
           it.copy(
+              documentScanPhase = DocumentScanPhase.ANALYZING,
               voiceCommandStatus = "Generating explanation",
               documentQuestionStatus = "Generating document explanation",
               documentAnalysisPartial = null,
@@ -613,6 +627,7 @@ class StreamViewModel(
           it.copy(
               isDocumentAnalyzing = false,
               isCapturing = false,
+              documentScanPhase = DocumentScanPhase.READY,
               documentAnalysisPartial = null,
               documentAnalysis = analysis,
               documentQuestionStatus = "Ask a question about this document",
@@ -631,10 +646,11 @@ class StreamViewModel(
           it.copy(
               isDocumentAnalyzing = false,
               isCapturing = false,
-              isDocumentSessionActive = false,
+              isDocumentSessionActive = true,
+              documentScanPhase = DocumentScanPhase.FAILED,
               documentAnalysisPartial = null,
               documentGroundingText = null,
-              documentQuestionStatus = null,
+              documentQuestionStatus = "Scan failed",
               documentQuestionError = e.message ?: "Document analysis failed",
               voiceCommandStatus = e.message ?: "Document analysis failed",
           )
@@ -665,57 +681,34 @@ class StreamViewModel(
     }
 
     stopVoiceCommandListener()
+    Log.i(TAG, "Document session mic policy: hey-meta listener stopped")
+    documentQuestionStartJob?.cancel()
     documentQuestionSpeechListener?.stop(cancel = true)
-    documentQuestionSpeechListener =
-        AssistantSpeechListener(
-            context = getApplication<Application>(),
-            onReady = {
-              _uiState.update {
-                it.copy(
-                    isDocumentQuestionListening = true,
-                    documentQuestionStatus = "Listening for your question",
-                    documentQuestionPartial = null,
-                    documentQuestionError = null,
-                )
-              }
-            },
-            onPartialTranscript = { transcript ->
-              _uiState.update {
-                it.copy(
-                    isDocumentQuestionListening = true,
-                    documentQuestionStatus = "Capturing question",
-                    documentQuestionPartial = transcript,
-                    documentQuestionError = null,
-                )
-              }
-            },
-            onFinalTranscript = { transcript ->
-              documentQuestionSpeechListener = null
-              _uiState.update {
-                it.copy(
-                    isDocumentQuestionListening = false,
-                    documentQuestionStatus = "Question captured",
-                    documentQuestionPartial = transcript,
-                    documentLastQuestion = transcript,
-                    documentQuestionError = null,
-                )
-              }
-              resumeDocumentScanVoiceListener()
-              submitDocumentQuestion(transcript)
-            },
-            onError = { message ->
-              documentQuestionSpeechListener = null
-              _uiState.update {
-                it.copy(
-                    isDocumentQuestionListening = false,
-                    documentQuestionStatus = null,
-                    documentQuestionError = message,
-                )
-              }
-              resumeDocumentScanVoiceListener()
-            },
-        )
-    documentQuestionSpeechListener?.start()
+    _uiState.update {
+      it.copy(
+          isDocumentQuestionListening = true,
+          documentQuestionStatus = "Preparing microphone",
+          documentQuestionPartial = null,
+          documentQuestionError = null,
+      )
+    }
+    documentQuestionStartJob =
+        viewModelScope.launch {
+          delay(DOCUMENT_QA_MIC_HANDOFF_DELAY_MS)
+          val currentState = _uiState.value
+          if (
+              !currentState.isDocumentSessionActive ||
+                  currentState.documentAnalysis == null ||
+                  !currentState.isDocumentQuestionListening ||
+                  documentQuestionSpeechListener != null
+          ) {
+            Log.d(TAG, "Document Q&A mic start skipped after handoff delay")
+            return@launch
+          }
+          documentQuestionSpeechListener = createDocumentQuestionSpeechListener()
+          Log.i(TAG, "Document Q&A mic started")
+          documentQuestionSpeechListener?.start()
+        }
   }
 
   fun stopDocumentQuestionListeningAndUsePartial() {
@@ -723,8 +716,11 @@ class StreamViewModel(
   }
 
   fun cancelDocumentQuestionListening() {
+    documentQuestionStartJob?.cancel()
+    documentQuestionStartJob = null
     documentQuestionSpeechListener?.stop(cancel = true)
     documentQuestionSpeechListener = null
+    Log.i(TAG, "Document Q&A mic stopped after cancel")
     _uiState.update {
       it.copy(
           isDocumentQuestionListening = false,
@@ -732,17 +728,73 @@ class StreamViewModel(
           documentQuestionPartial = null,
       )
     }
-    resumeDocumentScanVoiceListener()
   }
 
   fun endDocumentSession() {
     clearDocumentSession()
     resumeDocumentScanVoiceListener()
+    Log.i(TAG, "Document session ended: hey-meta listener resumed")
   }
+
+  private fun createDocumentQuestionSpeechListener(): AssistantSpeechListener =
+      AssistantSpeechListener(
+          context = getApplication<Application>(),
+          onReady = {
+            _uiState.update {
+              it.copy(
+                  isDocumentQuestionListening = true,
+                  documentQuestionStatus = "Listening for your question",
+                  documentQuestionPartial = null,
+                  documentQuestionError = null,
+              )
+            }
+          },
+          onPartialTranscript = { transcript ->
+            _uiState.update {
+              it.copy(
+                  isDocumentQuestionListening = true,
+                  documentQuestionStatus = "Capturing question",
+                  documentQuestionPartial = transcript,
+                  documentQuestionError = null,
+              )
+            }
+          },
+          onFinalTranscript = { transcript ->
+            documentQuestionStartJob = null
+            documentQuestionSpeechListener = null
+            Log.i(TAG, "Document Q&A mic stopped after transcript")
+            val cleanedTranscript = transcript.trim()
+            _uiState.update {
+              it.copy(
+                  isDocumentQuestionListening = false,
+                  isDocumentAnswering = cleanedTranscript.isNotBlank(),
+                  documentQuestionStatus = "Question captured",
+                  documentQuestionPartial = cleanedTranscript,
+                  documentLastQuestion = cleanedTranscript,
+                  documentQuestionError = null,
+              )
+            }
+            submitDocumentQuestion(cleanedTranscript)
+          },
+          onError = { message ->
+            documentQuestionStartJob = null
+            documentQuestionSpeechListener = null
+            Log.i(TAG, "Document Q&A mic stopped after error: $message")
+            _uiState.update {
+              it.copy(
+                  isDocumentQuestionListening = false,
+                  documentQuestionStatus = "Question not captured",
+                  documentQuestionError = message,
+              )
+            }
+          },
+      )
 
   private fun submitDocumentQuestion(question: String) {
     val cleanedQuestion = question.trim()
-    if (cleanedQuestion.isBlank()) return
+    if (cleanedQuestion.isBlank()) {
+      return
+    }
     val documentText = documentSessionText
     val analysis = _uiState.value.documentAnalysis
     if (documentText.isNullOrBlank() || analysis == null) {
@@ -766,7 +818,6 @@ class StreamViewModel(
         val answer =
             geminiService.answerDocumentQuestion(
                 documentText = documentText,
-                analysis = analysis,
                 question = cleanedQuestion,
                 conversation = conversation,
             )
@@ -794,6 +845,8 @@ class StreamViewModel(
   }
 
   private fun clearDocumentSession() {
+    documentQuestionStartJob?.cancel()
+    documentQuestionStartJob = null
     documentQuestionSpeechListener?.stop(cancel = true)
     documentQuestionSpeechListener = null
     documentSessionText = null
@@ -801,6 +854,7 @@ class StreamViewModel(
       it.copy(
           isDocumentSessionActive = false,
           isDocumentAnalyzing = false,
+          documentScanPhase = DocumentScanPhase.IDLE,
           documentAnalysisPartial = null,
           documentGroundingText = null,
           documentAnalysis = null,

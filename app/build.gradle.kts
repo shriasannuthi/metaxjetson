@@ -35,6 +35,19 @@ val geminiDocumentGroundingModelId =
     localProperties.getProperty("GEMINI_DOCUMENT_GROUNDING_MODEL_ID", "gemini-3.5-flash")
         .replace("\\", "\\\\")
         .replace("\"", "\\\"")
+val groqApiKey =
+    localProperties.getProperty("GROQ_API_KEY", "").replace("\\", "\\\\").replace("\"", "\\\"")
+val groqDocumentGroundingModelId =
+    localProperties
+        .getProperty("GROQ_DOCUMENT_GROUNDING_MODEL_ID", "qwen/qwen3.6-27b")
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+val xaiApiKey =
+    localProperties.getProperty("XAI_API_KEY", "").replace("\\", "\\\\").replace("\"", "\\\"")
+val xaiDocumentGroundingModelId =
+    localProperties.getProperty("XAI_DOCUMENT_GROUNDING_MODEL_ID", "grok-4.20-0309-reasoning")
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
 
 android {
   namespace = "com.meta.wearable.dat.externalsampleapps.cameraaccess"
@@ -70,6 +83,26 @@ android {
         "String",
         "GEMINI_DOCUMENT_GROUNDING_MODEL_ID",
         "\"$geminiDocumentGroundingModelId\"",
+    )
+    buildConfigField(
+        "String",
+        "GROQ_API_KEY",
+        "\"$groqApiKey\"",
+    )
+    buildConfigField(
+        "String",
+        "GROQ_DOCUMENT_GROUNDING_MODEL_ID",
+        "\"$groqDocumentGroundingModelId\"",
+    )
+    buildConfigField(
+        "String",
+        "XAI_API_KEY",
+        "\"$xaiApiKey\"",
+    )
+    buildConfigField(
+        "String",
+        "XAI_DOCUMENT_GROUNDING_MODEL_ID",
+        "\"$xaiDocumentGroundingModelId\"",
     )
 
     // Meta Wearables Device Access Toolkit Setup

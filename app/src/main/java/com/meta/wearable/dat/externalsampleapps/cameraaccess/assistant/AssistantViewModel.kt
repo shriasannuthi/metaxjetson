@@ -93,16 +93,18 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
             },
             onFinalTranscript = { transcript ->
               speechListener = null
+              val cleanedTranscript = transcript.trim()
               _uiState.update {
                 it.copy(
                     isListening = false,
+                    isAnswering = cleanedTranscript.isNotBlank(),
                     speechStatus = "Heard customer question",
-                    partialTranscript = transcript,
-                    lastQuestion = transcript,
+                    partialTranscript = cleanedTranscript,
+                    lastQuestion = cleanedTranscript,
                     error = null,
                 )
               }
-              submitQuestion(transcript)
+              submitQuestion(cleanedTranscript)
             },
             onError = { message ->
               speechListener = null

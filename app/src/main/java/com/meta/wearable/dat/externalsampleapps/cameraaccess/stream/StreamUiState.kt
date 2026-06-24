@@ -18,6 +18,15 @@ import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.DocumentAnalysis
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.ConversationTurn
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.data.Customer
 
+enum class DocumentScanPhase {
+  IDLE,
+  CAPTURING,
+  GROUNDING,
+  ANALYZING,
+  READY,
+  FAILED,
+}
+
 data class StreamUiState(
     val streamState: StreamState = StreamState.STOPPED,
     val videoFrame: Bitmap? = null,
@@ -34,6 +43,7 @@ data class StreamUiState(
     val voiceCommandStatus: String? = null,
     val voiceTranscript: String? = null,
     val isDocumentAnalyzing: Boolean = false,
+    val documentScanPhase: DocumentScanPhase = DocumentScanPhase.IDLE,
     val documentAnalysisPartial: String? = null,
     val documentGroundingText: String? = null,
     val documentAnalysis: DocumentAnalysisResult? = null,

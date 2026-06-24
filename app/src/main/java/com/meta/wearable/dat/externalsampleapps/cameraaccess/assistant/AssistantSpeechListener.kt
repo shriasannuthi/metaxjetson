@@ -64,6 +64,7 @@ class AssistantSpeechListener(
                 override fun onEndOfSpeech() = Unit
 
                 override fun onError(error: Int) {
+                  Log.w(TAG, "Assistant speech recognition error: $error (${error.description()})")
                   val fallback = bestPartialTranscript?.cleanTranscript()
                   if (!fallback.isNullOrBlank()) {
                     finishWithTranscript(fallback)
@@ -190,6 +191,7 @@ class AssistantSpeechListener(
         SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Speech recognizer is busy"
         SpeechRecognizer.ERROR_SERVER -> "Speech recognizer server error"
         SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech detected"
+        11 -> "Speech recognizer was not ready. Tap Ask again."
         else -> "Speech recognition error $this"
       }
 

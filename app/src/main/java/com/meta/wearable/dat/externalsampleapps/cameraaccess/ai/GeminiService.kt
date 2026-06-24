@@ -24,18 +24,31 @@ import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.Conversat
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlin.coroutines.resume
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 
 class GeminiService(
   @Suppress("UNUSED_PARAMETER") context: Context,
   private val httpClient: OkHttpClient = DEFAULT_HTTP_CLIENT,
   private val gson: Gson = Gson(),
   private val apiKey: String = BuildConfig.GEMINI_API_KEY,
+  private val groqApiKey: String = BuildConfig.GROQ_API_KEY,
+  private val xaiApiKey: String = BuildConfig.XAI_API_KEY,
 ) {
   fun isConfigured(): Boolean = apiKey.isNotBlank() && apiKey != PLACEHOLDER_API_KEY
 
@@ -123,27 +136,89 @@ class GeminiService(
   ): String {
     Log.i(
         TAG,
-        "Document grounding request: bitmap=${documentBitmap.width}x${documentBitmap.height}, model=${BuildConfig.GEMINI_DOCUMENT_GROUNDING_MODEL_ID}",
+        "Document grounding request: bitmap=${documentBitmap.width}x${documentBitmap.height}",
     )
-    return postToGemini(
-            prompt = buildDocumentGroundingPrompt(),
-            modelId = BuildConfig.GEMINI_DOCUMENT_GROUNDING_MODEL_ID,
-            images = listOf(documentBitmap),
-            onPartialText = onPartialText,
-            maxOutputTokens = DOCUMENT_GROUNDING_MAX_OUTPUT_TOKENS,
-        )
-        .trim()
+    return groundDocumentImage(documentBitmap)
         .also { groundedText ->
+          onPartialText(groundedText)
           Log.i(TAG, "Document grounding completed: chars=${groundedText.length}")
           if (groundedText.isBlank()) {
-            throw GeminiException("Gemini could not read text from the scanned document.")
+            throw GeminiException("Could not read text from the scanned document.")
           }
         }
   }
 
+  suspend fun groundDocumentImage(documentBitmap: Bitmap): String =
+      withContext(Dispatchers.IO) {
+        val providers = configuredGroundingProviders()
+        if (providers.isEmpty()) {
+          throw GeminiException("No document grounding provider is configured.")
+        }
+
+        val providerNames = providers.joinToString { "${it.name}/${it.modelId}" }
+        Log.i(TAG, "Document grounding race started: providers=[$providerNames]")
+
+        try {
+          withTimeout(DOCUMENT_GROUNDING_TIMEOUT_MS) {
+            supervisorScope {
+              val channel = Channel<GroundingProviderResult>(capacity = providers.size)
+              val jobs = providers.map { provider ->
+                launch {
+                  val result =
+                      try {
+                        provider.ground(documentBitmap)
+                      } catch (e: CancellationException) {
+                        throw e
+                      } catch (e: Exception) {
+                        GroundingProviderResult.Failure(
+                            providerName = provider.name,
+                            modelId = provider.modelId,
+                            latencyMs = 0L,
+                            reason = e.message ?: e.javaClass.simpleName,
+                        )
+                      }
+                  channel.send(result)
+                }
+              }
+
+              val failures = mutableListOf<GroundingProviderResult.Failure>()
+              repeat(providers.size) {
+                when (val result = channel.receive()) {
+                  is GroundingProviderResult.Success -> {
+                    jobs.forEach { it.cancel() }
+                    channel.close()
+                    Log.i(
+                        TAG,
+                        "Document grounding winner: provider=${result.providerName}, model=${result.modelId}, latencyMs=${result.latencyMs}, chars=${result.text.length}",
+                    )
+                    if (BuildConfig.DEBUG) {
+                      Log.d(
+                          TAG,
+                          "Grounded document preview: ${result.text.take(DEBUG_GROUNDED_TEXT_CHARS)}",
+                      )
+                    }
+                    return@supervisorScope result.text
+                  }
+                  is GroundingProviderResult.Failure -> {
+                    failures += result
+                    Log.w(
+                        TAG,
+                        "Document grounding provider failed: provider=${result.providerName}, model=${result.modelId}, latencyMs=${result.latencyMs}, reason=${result.reason}",
+                    )
+                  }
+                }
+              }
+              throw GeminiException(buildGroundingFailureMessage(failures))
+            }
+          }
+        } catch (e: TimeoutCancellationException) {
+          Log.w(TAG, "Document grounding race timed out after ${DOCUMENT_GROUNDING_TIMEOUT_MS}ms")
+          throw GeminiException("Could not read document: all document readers timed out after 35s.")
+        }
+      }
+
   suspend fun answerDocumentQuestion(
       documentText: String,
-      analysis: DocumentAnalysisResult,
       question: String,
       conversation: List<ConversationTurn>,
   ): String {
@@ -152,11 +227,294 @@ class GeminiService(
         "Document question request: documentTextChars=${documentText.length}, questionChars=${question.length}, turns=${conversation.size}",
     )
     return postToGemini(
-            prompt = buildDocumentQuestionPrompt(documentText, analysis, question, conversation),
+            prompt = buildDocumentQuestionPrompt(documentText, question, conversation),
             maxOutputTokens = DOCUMENT_QA_MAX_OUTPUT_TOKENS,
         )
         .trim()
   }
+
+  private fun configuredGroundingProviders(): List<DocumentGroundingProvider> =
+      buildList {
+        if (isConfigured()) {
+          add(
+              GeminiGroundingProvider(
+                  modelId = BuildConfig.GEMINI_DOCUMENT_GROUNDING_MODEL_ID,
+                  apiKey = apiKey,
+              )
+          )
+        }
+        if (groqApiKey.isConfiguredKey()) {
+          add(
+              OpenAiCompatibleGroundingProvider(
+                  name = "Groq",
+                  endpoint = GROQ_CHAT_COMPLETIONS_ENDPOINT,
+                  modelId = BuildConfig.GROQ_DOCUMENT_GROUNDING_MODEL_ID,
+                  apiKey = groqApiKey,
+              )
+          )
+        }
+        if (xaiApiKey.isConfiguredKey()) {
+          add(
+              XaiResponsesGroundingProvider(
+                  name = "xAI",
+                  modelId = BuildConfig.XAI_DOCUMENT_GROUNDING_MODEL_ID,
+                  apiKey = xaiApiKey,
+              )
+          )
+        }
+      }
+
+  private interface DocumentGroundingProvider {
+    val name: String
+    val modelId: String
+
+    suspend fun ground(documentBitmap: Bitmap): GroundingProviderResult
+  }
+
+  private inner class GeminiGroundingProvider(
+      override val modelId: String,
+      private val apiKey: String,
+  ) : DocumentGroundingProvider {
+    override val name: String = "Gemini"
+
+    override suspend fun ground(documentBitmap: Bitmap): GroundingProviderResult {
+      val startedAtMs = SystemClock.elapsedRealtime()
+      Log.i(TAG, "Document grounding provider request started: provider=$name, model=$modelId")
+      val request =
+          Request.Builder()
+              .url("${geminiGenerateEndpoint(modelId)}?key=$apiKey")
+              .post(
+                  buildRequestBody(
+                          prompt = buildDocumentGroundingPrompt(),
+                          images = listOf(documentBitmap),
+                          responseMimeType = null,
+                          responseSchema = null,
+                          maxOutputTokens = DOCUMENT_GROUNDING_MAX_OUTPUT_TOKENS,
+                      )
+                      .toRequestBody(JSON_MEDIA_TYPE)
+              )
+              .build()
+      return executeGroundingRequest(
+          providerName = name,
+          modelId = modelId,
+          startedAtMs = startedAtMs,
+          request = request,
+          parseText = { body ->
+            JsonParser.parseString(body).extractText()
+          },
+      )
+    }
+  }
+
+  private inner class OpenAiCompatibleGroundingProvider(
+      override val name: String,
+      private val endpoint: String,
+      override val modelId: String,
+      private val apiKey: String,
+  ) : DocumentGroundingProvider {
+    override suspend fun ground(documentBitmap: Bitmap): GroundingProviderResult {
+      val startedAtMs = SystemClock.elapsedRealtime()
+      Log.i(TAG, "Document grounding provider request started: provider=$name, model=$modelId")
+      val request =
+          Request.Builder()
+              .url(endpoint)
+              .addHeader("Authorization", "Bearer $apiKey")
+              .post(buildOpenAiCompatibleGroundingBody(documentBitmap).toRequestBody(JSON_MEDIA_TYPE))
+              .build()
+      return executeGroundingRequest(
+          providerName = name,
+          modelId = modelId,
+          startedAtMs = startedAtMs,
+          request = request,
+          parseText = { body ->
+            JsonParser.parseString(body)
+                .asJsonObject
+                .getAsJsonArray("choices")
+                ?.firstOrNull()
+                ?.asJsonObject
+                ?.getAsJsonObject("message")
+                ?.get("content")
+                ?.asString
+                .orEmpty()
+          },
+      )
+    }
+
+    private fun buildOpenAiCompatibleGroundingBody(documentBitmap: Bitmap): String =
+        gson.toJson(
+            JsonObject().apply {
+              addProperty("model", modelId)
+              addProperty("temperature", RESPONSE_TEMPERATURE)
+              addProperty("max_completion_tokens", DOCUMENT_GROUNDING_MAX_OUTPUT_TOKENS)
+              add(
+                  "messages",
+                  JsonArray().apply {
+                    add(
+                        JsonObject().apply {
+                          addProperty("role", "user")
+                          add(
+                              "content",
+                              JsonArray().apply {
+                                add(
+                                    JsonObject().apply {
+                                      addProperty("type", "text")
+                                      addProperty("text", buildDocumentGroundingPrompt())
+                                    }
+                                )
+                                add(
+                                    JsonObject().apply {
+                                      addProperty("type", "image_url")
+                                      add(
+                                          "image_url",
+                                          JsonObject().apply {
+                                            addProperty(
+                                                "url",
+                                                "data:image/jpeg;base64,${documentBitmap.toJpegBase64()}",
+                                            )
+                                          },
+                                      )
+                                    }
+                                )
+                              },
+                          )
+                        }
+                    )
+                  },
+              )
+            }
+        )
+  }
+
+  private inner class XaiResponsesGroundingProvider(
+      override val name: String,
+      override val modelId: String,
+      private val apiKey: String,
+  ) : DocumentGroundingProvider {
+    override suspend fun ground(documentBitmap: Bitmap): GroundingProviderResult {
+      val startedAtMs = SystemClock.elapsedRealtime()
+      Log.i(TAG, "Document grounding provider request started: provider=$name, model=$modelId")
+      val request =
+          Request.Builder()
+              .url(XAI_RESPONSES_ENDPOINT)
+              .addHeader("Authorization", "Bearer $apiKey")
+              .post(buildXaiResponsesGroundingBody(documentBitmap).toRequestBody(JSON_MEDIA_TYPE))
+              .build()
+      return executeGroundingRequest(
+          providerName = name,
+          modelId = modelId,
+          startedAtMs = startedAtMs,
+          request = request,
+          parseText = { body ->
+            JsonParser.parseString(body).extractResponsesText()
+          },
+      )
+    }
+
+    private fun buildXaiResponsesGroundingBody(documentBitmap: Bitmap): String =
+        gson.toJson(
+            JsonObject().apply {
+              addProperty("model", modelId)
+              addProperty("temperature", RESPONSE_TEMPERATURE)
+              addProperty("max_output_tokens", DOCUMENT_GROUNDING_MAX_OUTPUT_TOKENS)
+              addProperty("store", false)
+              add(
+                  "input",
+                  JsonArray().apply {
+                    add(
+                        JsonObject().apply {
+                          addProperty("role", "user")
+                          add(
+                              "content",
+                              JsonArray().apply {
+                                add(
+                                    JsonObject().apply {
+                                      addProperty("type", "input_image")
+                                      addProperty(
+                                          "image_url",
+                                          "data:image/jpeg;base64,${documentBitmap.toJpegBase64()}",
+                                      )
+                                      addProperty("detail", "high")
+                                    }
+                                )
+                                add(
+                                    JsonObject().apply {
+                                      addProperty("type", "input_text")
+                                      addProperty("text", buildDocumentGroundingPrompt())
+                                    }
+                                )
+                              },
+                          )
+                        }
+                    )
+                  },
+              )
+            }
+        )
+  }
+
+  private suspend fun executeGroundingRequest(
+      providerName: String,
+      modelId: String,
+      startedAtMs: Long,
+      request: Request,
+      parseText: (String) -> String,
+  ): GroundingProviderResult {
+    val httpResult = executeRequest(request)
+    val latencyMs = SystemClock.elapsedRealtime() - startedAtMs
+    Log.i(
+        TAG,
+        "Document grounding provider response: provider=$providerName, model=$modelId, http=${httpResult.code}, latencyMs=$latencyMs",
+    )
+    if (!httpResult.isSuccessful) {
+      val reason = "HTTP ${httpResult.code}. ${httpResult.body.toProviderErrorSummary()}"
+      Log.w(TAG, "$providerName grounding failed: $reason")
+      return GroundingProviderResult.Failure(providerName, modelId, latencyMs, reason)
+    }
+
+    val text =
+        runCatching { parseText(httpResult.body).trim() }
+            .getOrElse { error ->
+              return GroundingProviderResult.Failure(
+                  providerName,
+                  modelId,
+                  latencyMs,
+                  "Parse error: ${error.message ?: error.javaClass.simpleName}",
+              )
+            }
+    if (text.isBlank()) {
+      return GroundingProviderResult.Failure(providerName, modelId, latencyMs, "Empty output")
+    }
+    return GroundingProviderResult.Success(providerName, modelId, latencyMs, text)
+  }
+
+  private suspend fun executeRequest(request: Request): HttpTextResult =
+      suspendCancellableCoroutine { continuation ->
+        val call = httpClient.newCall(request)
+        continuation.invokeOnCancellation { call.cancel() }
+        call.enqueue(
+            object : Callback {
+              override fun onFailure(call: Call, e: IOException) {
+                if (continuation.isCancelled) return
+                continuation.resume(HttpTextResult(code = 0, body = e.message.orEmpty(), isSuccessful = false))
+              }
+
+              override fun onResponse(call: Call, response: Response) {
+                response.use {
+                  val body = it.body?.string().orEmpty()
+                  if (!continuation.isCancelled) {
+                    continuation.resume(
+                        HttpTextResult(
+                            code = it.code,
+                            body = body,
+                            isSuccessful = it.isSuccessful,
+                        )
+                    )
+                  }
+                }
+              }
+            }
+        )
+      }
 
   private fun buildRequestBody(
       prompt: String,
@@ -247,6 +605,29 @@ class GeminiService(
         }
       }
 
+  private fun JsonElement.extractResponsesText(): String =
+      buildString {
+        fun visit(element: JsonElement?) {
+          if (element == null || element.isJsonNull) return
+          when {
+            element.isJsonArray -> element.asJsonArray.forEach(::visit)
+            element.isJsonObject -> {
+              val json = element.asJsonObject
+              json.get("output_text")?.takeIf { it.isJsonPrimitive }?.asString?.let(::appendLine)
+              val type = json.get("type")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
+              if (type == "output_text") {
+                json.get("text")?.takeIf { it.isJsonPrimitive }?.asString?.let(::appendLine)
+              }
+              json.get("output")?.let(::visit)
+              json.get("content")?.let(::visit)
+            }
+          }
+        }
+        val root = asJsonObject
+        root.get("output_text")?.takeIf { it.isJsonPrimitive }?.asString?.let(::appendLine)
+        root.get("output")?.let(::visit)
+      }.trim()
+
   private fun buildDocumentGroundingPrompt(): String {
     return """
       Convert this smart-glasses document photo into faithful Markdown text.
@@ -275,23 +656,18 @@ class GeminiService(
 
   private fun buildDocumentQuestionPrompt(
       documentText: String,
-      analysis: DocumentAnalysisResult,
       question: String,
       conversation: List<ConversationTurn>,
   ): String =
       buildString {
         appendLine("You are answering questions about one scanned smart-glasses document.")
-        appendLine("Use the grounded document text as the primary evidence.")
-        appendLine("Use the document analysis only as supporting context.")
+        appendLine("Use only the grounded document text and prior Q&A turns as evidence.")
         appendLine("Answer directly and crisply. Prefer 1-3 short bullets or 1 short paragraph.")
         appendLine("When the question refers to a section, numbered point, row, or field, locate that exact item in the grounded text before answering.")
         appendLine("Do not invent facts. If the grounded text does not contain enough evidence, say exactly what is missing.")
         appendLine()
         appendLine("Grounded document text:")
         appendLine(documentText.take(MAX_GROUNDED_DOCUMENT_CHARS))
-        appendLine()
-        appendLine("Initial document analysis:")
-        appendLine(analysis.toPromptContext())
         if (conversation.isNotEmpty()) {
           appendLine()
           appendLine("Prior Q&A in this document session:")
@@ -402,6 +778,38 @@ class GeminiService(
     return parsedMessage ?: take(MAX_LOG_RESPONSE_CHARS)
   }
 
+  private fun String.toProviderErrorSummary(): String {
+    val parsedMessage =
+        runCatching {
+              val parsed = JsonParser.parseString(this).asJsonObject
+              parsed.getAsJsonObject("error")?.get("message")?.asString
+                  ?: parsed.get("error")?.asString
+                  ?: parsed.get("message")?.asString
+            }
+            .getOrNull()
+    return (parsedMessage ?: take(MAX_LOG_RESPONSE_CHARS)).ifBlank { "No response body" }
+  }
+
+  private fun String.isConfiguredKey(): Boolean = isNotBlank() && this != PLACEHOLDER_API_KEY
+
+  private fun buildGroundingFailureMessage(
+      failures: List<GroundingProviderResult.Failure>
+  ): String {
+    if (failures.isEmpty()) {
+      return "Could not read document: all document readers timed out."
+    }
+    val summary =
+        failures.joinToString("; ") { failure ->
+          "${failure.providerName}: ${failure.reason}"
+        }
+    val hasOnlyGemini = failures.size == 1 && failures.first().providerName == "Gemini"
+    return if (hasOnlyGemini && summary.contains("503")) {
+      "Gemini is overloaded. No alternate document reader is configured."
+    } else {
+      "Could not read document. $summary"
+    }
+  }
+
   private fun parseJsonOnly(text: String): JsonObject? {
     val trimmed = text.trim().removeSurrounding("```json", "```").removeSurrounding("```")
     return runCatching { JsonParser.parseString(trimmed).asJsonObject }
@@ -435,6 +843,32 @@ class GeminiService(
     return Bitmap.createScaledBitmap(this, resizedWidth, resizedHeight, true)
   }
 
+  private sealed interface GroundingProviderResult {
+    val providerName: String
+    val modelId: String
+    val latencyMs: Long
+
+    data class Success(
+        override val providerName: String,
+        override val modelId: String,
+        override val latencyMs: Long,
+        val text: String,
+    ) : GroundingProviderResult
+
+    data class Failure(
+        override val providerName: String,
+        override val modelId: String,
+        override val latencyMs: Long,
+        val reason: String,
+    ) : GroundingProviderResult
+  }
+
+  private data class HttpTextResult(
+      val code: Int,
+      val body: String,
+      val isSuccessful: Boolean,
+  )
+
   companion object {
     private const val TAG = "CameraAccess:GeminiService"
     private const val PLACEHOLDER_API_KEY = "your_actual_key_here"
@@ -449,6 +883,11 @@ class GeminiService(
     private const val MAX_DOCUMENT_QA_TURNS = 8
     private const val MAX_DOCUMENT_CONTEXT_CHARS = 2_500
     private const val MAX_GROUNDED_DOCUMENT_CHARS = 12_000
+    private const val DOCUMENT_GROUNDING_TIMEOUT_MS = 35_000L
+    private const val DEBUG_GROUNDED_TEXT_CHARS = 300
+    private const val GROQ_CHAT_COMPLETIONS_ENDPOINT =
+        "https://api.groq.com/openai/v1/chat/completions"
+    private const val XAI_RESPONSES_ENDPOINT = "https://api.x.ai/v1/responses"
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     private val DEFAULT_HTTP_CLIENT =
         OkHttpClient.Builder()
@@ -460,6 +899,9 @@ class GeminiService(
 
     private fun geminiEndpoint(modelId: String): String =
         "https://generativelanguage.googleapis.com/v1beta/models/$modelId:streamGenerateContent"
+
+    private fun geminiGenerateEndpoint(modelId: String): String =
+        "https://generativelanguage.googleapis.com/v1beta/models/$modelId:generateContent"
   }
 }
 
