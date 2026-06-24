@@ -212,6 +212,7 @@ fun StreamScreen(
         analysis = streamUiState.documentAnalysis,
         isAnalyzing = streamUiState.isDocumentAnalyzing,
         partialText = streamUiState.documentAnalysisPartial,
+        scanStatus = streamUiState.documentQuestionStatus,
         isSessionActive = streamUiState.isDocumentSessionActive,
         isQuestionListening = streamUiState.isDocumentQuestionListening,
         questionStatus = streamUiState.documentQuestionStatus,
@@ -1129,6 +1130,7 @@ private fun DocumentSessionOverlay(
     analysis: DocumentAnalysisResult?,
     isAnalyzing: Boolean,
     partialText: String?,
+    scanStatus: String?,
     isSessionActive: Boolean,
     isQuestionListening: Boolean,
     questionStatus: String?,
@@ -1154,6 +1156,7 @@ private fun DocumentSessionOverlay(
         analysis = analysis,
         isAnalyzing = isAnalyzing,
         partialText = partialText,
+        scanStatus = scanStatus,
         modifier = Modifier.fillMaxWidth().weight(1f),
     )
     DocumentQuestionPanel(
@@ -1180,6 +1183,7 @@ private fun DocumentAnalysisPanel(
     analysis: DocumentAnalysisResult?,
     isAnalyzing: Boolean,
     partialText: String?,
+    scanStatus: String?,
     modifier: Modifier = Modifier,
 ) {
   Surface(
@@ -1202,7 +1206,7 @@ private fun DocumentAnalysisPanel(
 
       if (isAnalyzing) {
         partialText?.toLiveAnalysisText()?.takeIf { it.isNotBlank() }?.let {
-          AnalysisText(label = "Live", value = it)
+          AnalysisText(label = scanStatus ?: "Live", value = it)
         } ?: run {
           Row(verticalAlignment = Alignment.CenterVertically) {
             CircularProgressIndicator(
@@ -1212,7 +1216,7 @@ private fun DocumentAnalysisPanel(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Analyzing document",
+                text = scanStatus ?: "Analyzing document",
                 color = Color.White.copy(alpha = 0.84f),
                 style = MaterialTheme.typography.bodySmall,
             )

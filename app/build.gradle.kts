@@ -27,6 +27,14 @@ val gemmaModelId =
     localProperties.getProperty("GEMMA_MODEL_ID", "gemma-3-27b-it")
         .replace("\\", "\\\\")
         .replace("\"", "\\\"")
+val geminiSessionModelId =
+    localProperties.getProperty("GEMINI_SESSION_MODEL_ID", "gemini-3.1-flash-lite")
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+val geminiDocumentGroundingModelId =
+    localProperties.getProperty("GEMINI_DOCUMENT_GROUNDING_MODEL_ID", "gemini-3.5-flash")
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
 
 android {
   namespace = "com.meta.wearable.dat.externalsampleapps.cameraaccess"
@@ -52,6 +60,16 @@ android {
         "String",
         "GEMMA_MODEL_ID",
         "\"$gemmaModelId\"",
+    )
+    buildConfigField(
+        "String",
+        "GEMINI_SESSION_MODEL_ID",
+        "\"$geminiSessionModelId\"",
+    )
+    buildConfigField(
+        "String",
+        "GEMINI_DOCUMENT_GROUNDING_MODEL_ID",
+        "\"$geminiDocumentGroundingModelId\"",
     )
 
     // Meta Wearables Device Access Toolkit Setup

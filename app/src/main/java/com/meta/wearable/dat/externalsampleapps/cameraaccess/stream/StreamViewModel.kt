@@ -114,7 +114,7 @@ class StreamViewModel(
   private var lastFaceRecognitionAtMs = 0L
   private var voiceCommandListener: VoiceCommandListener? = null
   private var documentQuestionSpeechListener: AssistantSpeechListener? = null
-  private var documentSessionBitmap: Bitmap? = null
+  private var documentSessionText: String? = null
   private var stream: Stream? = null
   private var audioStream: AudioStream? = null
   private var previousDeviceSessionState: DeviceSessionState? = null
@@ -534,6 +534,7 @@ class StreamViewModel(
           isCapturing = true,
           isDocumentSessionActive = true,
           documentAnalysisPartial = null,
+          documentGroundingText = null,
           documentAnalysis = null,
           documentQuestionStatus = "Scan in progress",
           voiceCommandStatus = "Capturing document",
@@ -559,15 +560,45 @@ class StreamViewModel(
             TAG,
             "Document photo captured: bitmap=${documentBitmap.width}x${documentBitmap.height}, captureDurationMs=$captureDurationMs",
         )
-        _uiState.update { it.copy(voiceCommandStatus = "Analyzing document") }
+        _uiState.update {
+          it.copy(
+              voiceCommandStatus = "Reading document",
+              documentQuestionStatus = "Reading document text",
+          )
+        }
+
+        val groundingStartedAtMs = SystemClock.elapsedRealtime()
+        Log.i(
+            TAG,
+            "Starting document grounding from captured photo: bitmap=${documentBitmap.width}x${documentBitmap.height}",
+        )
+        val groundedText =
+            geminiService.transcribeDocumentImage(documentBitmap) { partialText ->
+              _uiState.update { state ->
+                state.copy(
+                    documentAnalysisPartial = partialText.take(MAX_PARTIAL_RESPONSE_CHARS),
+                    documentGroundingText = partialText,
+                )
+              }
+            }
+        val groundingDurationMs = SystemClock.elapsedRealtime() - groundingStartedAtMs
+        documentSessionText = groundedText
+        _uiState.update {
+          it.copy(
+              voiceCommandStatus = "Generating explanation",
+              documentQuestionStatus = "Generating document explanation",
+              documentAnalysisPartial = null,
+              documentGroundingText = groundedText,
+          )
+        }
 
         val analysisStartedAtMs = SystemClock.elapsedRealtime()
         Log.i(
             TAG,
-            "Starting document analysis from captured photo: bitmap=${documentBitmap.width}x${documentBitmap.height}",
+            "Starting document analysis from grounded text: chars=${groundedText.length}",
         )
         val analysis =
-            geminiService.analyzeDocument(documentBitmap) { partialText ->
+            geminiService.analyzeDocument(groundedText) { partialText ->
               _uiState.update { state ->
                 state.copy(documentAnalysisPartial = partialText.take(MAX_PARTIAL_RESPONSE_CHARS))
               }
@@ -576,10 +607,8 @@ class StreamViewModel(
         val totalDurationMs = SystemClock.elapsedRealtime() - scanStartedAtMs
         Log.i(
             TAG,
-            "Document analysis completed: analysisDurationMs=$analysisDurationMs, totalScanDurationMs=$totalDurationMs, parsed=${analysis.json != null}, rawChars=${analysis.rawJson.length}",
+            "Document scan completed: groundingDurationMs=$groundingDurationMs, analysisDurationMs=$analysisDurationMs, totalScanDurationMs=$totalDurationMs, parsed=${analysis.json != null}, groundedChars=${groundedText.length}, rawChars=${analysis.rawJson.length}",
         )
-        documentSessionBitmap = documentBitmap
-        documentBitmap = null
         _uiState.update {
           it.copy(
               isDocumentAnalyzing = false,
@@ -597,12 +626,14 @@ class StreamViewModel(
             "Document analysis failed after ${totalDurationMs}ms: ${e.javaClass.simpleName}: ${e.message}",
             e,
         )
+        documentSessionText = null
         _uiState.update {
           it.copy(
               isDocumentAnalyzing = false,
               isCapturing = false,
               isDocumentSessionActive = false,
               documentAnalysisPartial = null,
+              documentGroundingText = null,
               documentQuestionStatus = null,
               documentQuestionError = e.message ?: "Document analysis failed",
               voiceCommandStatus = e.message ?: "Document analysis failed",
@@ -628,8 +659,8 @@ class StreamViewModel(
       Log.d(TAG, "Document Q&A already busy")
       return
     }
-    if (documentSessionBitmap == null) {
-      _uiState.update { it.copy(documentQuestionError = "Document image is no longer available") }
+    if (documentSessionText.isNullOrBlank()) {
+      _uiState.update { it.copy(documentQuestionError = "Document text is no longer available") }
       return
     }
 
@@ -712,9 +743,9 @@ class StreamViewModel(
   private fun submitDocumentQuestion(question: String) {
     val cleanedQuestion = question.trim()
     if (cleanedQuestion.isBlank()) return
-    val bitmap = documentSessionBitmap
+    val documentText = documentSessionText
     val analysis = _uiState.value.documentAnalysis
-    if (bitmap == null || analysis == null) {
+    if (documentText.isNullOrBlank() || analysis == null) {
       _uiState.update { it.copy(documentQuestionError = "Document session is not available") }
       return
     }
@@ -731,23 +762,10 @@ class StreamViewModel(
     }
 
     viewModelScope.launch {
-      val questionBitmap =
-          try {
-            bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, false)
-          } catch (e: Exception) {
-            Log.w(TAG, "Unable to copy document image for question", e)
-            _uiState.update {
-              it.copy(
-                  isDocumentAnswering = false,
-                  documentQuestionError = "Document image is no longer available",
-              )
-            }
-            return@launch
-          }
       try {
         val answer =
             geminiService.answerDocumentQuestion(
-                documentBitmap = questionBitmap,
+                documentText = documentText,
                 analysis = analysis,
                 question = cleanedQuestion,
                 conversation = conversation,
@@ -771,8 +789,6 @@ class StreamViewModel(
               documentQuestionError = e.message ?: "Document question failed",
           )
         }
-      } finally {
-        questionBitmap.recycle()
       }
     }
   }
@@ -780,13 +796,13 @@ class StreamViewModel(
   private fun clearDocumentSession() {
     documentQuestionSpeechListener?.stop(cancel = true)
     documentQuestionSpeechListener = null
-    documentSessionBitmap?.recycle()
-    documentSessionBitmap = null
+    documentSessionText = null
     _uiState.update {
       it.copy(
           isDocumentSessionActive = false,
           isDocumentAnalyzing = false,
           documentAnalysisPartial = null,
+          documentGroundingText = null,
           documentAnalysis = null,
           isDocumentQuestionListening = false,
           documentQuestionStatus = null,

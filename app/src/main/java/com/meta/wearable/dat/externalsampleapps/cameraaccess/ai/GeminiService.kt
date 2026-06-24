@@ -41,6 +41,7 @@ class GeminiService(
 
   suspend fun postToGemini(
       prompt: String,
+      modelId: String = BuildConfig.GEMINI_SESSION_MODEL_ID,
       images: List<Bitmap> = emptyList(),
       onPartialText: (String) -> Unit = {},
       responseMimeType: String? = null,
@@ -55,7 +56,7 @@ class GeminiService(
       val startedAtMs = SystemClock.elapsedRealtime()
       val request =
           Request.Builder()
-              .url("$GEMINI_ENDPOINT?alt=sse&key=$apiKey")
+              .url("${geminiEndpoint(modelId)}?alt=sse&key=$apiKey")
               .post(
                   buildRequestBody(
                           prompt = prompt,
@@ -68,7 +69,7 @@ class GeminiService(
               )
               .build()
 
-      Log.d(TAG, "Posting Gemini request with ${images.size} image(s)")
+      Log.d(TAG, "Posting Gemini request: model=$modelId, images=${images.size}")
       httpClient.newCall(request).execute().use { response ->
         val durationMs = SystemClock.elapsedRealtime() - startedAtMs
         Log.d(
@@ -91,17 +92,16 @@ class GeminiService(
     }
 
   suspend fun analyzeDocument(
-      documentBitmap: Bitmap,
+      documentText: String,
       onPartialText: (String) -> Unit = {},
   ): DocumentAnalysisResult {
     Log.i(
         TAG,
-        "Document analysis request: bitmap=${documentBitmap.width}x${documentBitmap.height}",
+        "Document analysis request from grounded text: chars=${documentText.length}",
     )
     val responseJson =
         postToGemini(
-            buildDocumentAnalysisPrompt(),
-            listOf(documentBitmap),
+            prompt = buildDocumentAnalysisPrompt(documentText),
             onPartialText = onPartialText,
             responseMimeType = "application/json",
             responseSchema = documentAnalysisSchema(),
@@ -114,22 +114,45 @@ class GeminiService(
     if (parsed == null) {
       Log.w(TAG, "Document analysis raw response: ${responseJson.take(MAX_LOG_RESPONSE_CHARS)}")
     }
-    return DocumentAnalysisResult(rawJson = responseJson, json = parsed)
+    return DocumentAnalysisResult(rawJson = responseJson, json = parsed, documentText = documentText)
+  }
+
+  suspend fun transcribeDocumentImage(
+      documentBitmap: Bitmap,
+      onPartialText: (String) -> Unit = {},
+  ): String {
+    Log.i(
+        TAG,
+        "Document grounding request: bitmap=${documentBitmap.width}x${documentBitmap.height}, model=${BuildConfig.GEMINI_DOCUMENT_GROUNDING_MODEL_ID}",
+    )
+    return postToGemini(
+            prompt = buildDocumentGroundingPrompt(),
+            modelId = BuildConfig.GEMINI_DOCUMENT_GROUNDING_MODEL_ID,
+            images = listOf(documentBitmap),
+            onPartialText = onPartialText,
+            maxOutputTokens = DOCUMENT_GROUNDING_MAX_OUTPUT_TOKENS,
+        )
+        .trim()
+        .also { groundedText ->
+          Log.i(TAG, "Document grounding completed: chars=${groundedText.length}")
+          if (groundedText.isBlank()) {
+            throw GeminiException("Gemini could not read text from the scanned document.")
+          }
+        }
   }
 
   suspend fun answerDocumentQuestion(
-      documentBitmap: Bitmap,
+      documentText: String,
       analysis: DocumentAnalysisResult,
       question: String,
       conversation: List<ConversationTurn>,
   ): String {
     Log.i(
         TAG,
-        "Document question request: bitmap=${documentBitmap.width}x${documentBitmap.height}, questionChars=${question.length}, turns=${conversation.size}",
+        "Document question request: documentTextChars=${documentText.length}, questionChars=${question.length}, turns=${conversation.size}",
     )
     return postToGemini(
-            prompt = buildDocumentQuestionPrompt(analysis, question, conversation),
-            images = listOf(documentBitmap),
+            prompt = buildDocumentQuestionPrompt(documentText, analysis, question, conversation),
             maxOutputTokens = DOCUMENT_QA_MAX_OUTPUT_TOKENS,
         )
         .trim()
@@ -224,26 +247,48 @@ class GeminiService(
         }
       }
 
-  private fun buildDocumentAnalysisPrompt(): String {
+  private fun buildDocumentGroundingPrompt(): String {
     return """
-      Analyze this smart-glasses snapshot quickly.
-      If text is visible, read the key text. Identify what is shown, summarize it, explain the important details, and suggest immediate next actions.
+      Convert this smart-glasses document photo into faithful Markdown text.
+
+      Rules:
+      - Preserve the visible document structure: headings, section names, paragraph order, bullet order, numbered points, labels, dates, amounts, signatures, checkboxes, and table rows/columns.
+      - Do not summarize, explain, correct, reorder, or infer missing content.
+      - If a point is visible but not numbered, preserve its order as a bullet.
+      - If text is uncertain or unreadable, write [unclear] in that location.
+      - If a table is visible, render it as a Markdown table.
+      - Return only the document text in Markdown. Do not wrap it in code fences.
+    """.trimIndent()
+  }
+
+  private fun buildDocumentAnalysisPrompt(documentText: String): String {
+    return """
+      Analyze this smart-glasses scanned document using only the grounded document text below.
+      Identify what is shown, summarize it, explain the important details, and suggest immediate next actions.
       Return extractedFields as short "label: value" strings.
       Keep the response concise. Use empty arrays when there are no risk flags or actions.
+
+      Grounded document text:
+      ${documentText.take(MAX_GROUNDED_DOCUMENT_CHARS)}
     """.trimIndent()
   }
 
   private fun buildDocumentQuestionPrompt(
+      documentText: String,
       analysis: DocumentAnalysisResult,
       question: String,
       conversation: List<ConversationTurn>,
   ): String =
       buildString {
         appendLine("You are answering questions about one scanned smart-glasses document.")
-        appendLine("Use the attached scanned image as primary evidence.")
-        appendLine("Also use the document analysis context below.")
+        appendLine("Use the grounded document text as the primary evidence.")
+        appendLine("Use the document analysis only as supporting context.")
         appendLine("Answer directly and crisply. Prefer 1-3 short bullets or 1 short paragraph.")
-        appendLine("Do not invent facts. If the document does not contain enough evidence, say exactly what is missing.")
+        appendLine("When the question refers to a section, numbered point, row, or field, locate that exact item in the grounded text before answering.")
+        appendLine("Do not invent facts. If the grounded text does not contain enough evidence, say exactly what is missing.")
+        appendLine()
+        appendLine("Grounded document text:")
+        appendLine(documentText.take(MAX_GROUNDED_DOCUMENT_CHARS))
         appendLine()
         appendLine("Initial document analysis:")
         appendLine(analysis.toPromptContext())
@@ -392,19 +437,18 @@ class GeminiService(
 
   companion object {
     private const val TAG = "CameraAccess:GeminiService"
-    private const val MODEL_ID = "gemini-3.1-flash-lite"
-    private const val GEMINI_ENDPOINT =
-        "https://generativelanguage.googleapis.com/v1beta/models/$MODEL_ID:streamGenerateContent"
     private const val PLACEHOLDER_API_KEY = "your_actual_key_here"
     private const val JPEG_QUALITY = 65
     private const val MAX_IMAGE_SIDE_PX = 768
     private const val MAX_OUTPUT_TOKENS = 350
+    private const val DOCUMENT_GROUNDING_MAX_OUTPUT_TOKENS = 4_096
     private const val DOCUMENT_QA_MAX_OUTPUT_TOKENS = 220
     private const val RESPONSE_TEMPERATURE = 0.2
     private const val MEDIA_RESOLUTION = "MEDIA_RESOLUTION_LOW"
     private const val MAX_LOG_RESPONSE_CHARS = 500
     private const val MAX_DOCUMENT_QA_TURNS = 8
     private const val MAX_DOCUMENT_CONTEXT_CHARS = 2_500
+    private const val MAX_GROUNDED_DOCUMENT_CHARS = 12_000
     private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     private val DEFAULT_HTTP_CLIENT =
         OkHttpClient.Builder()
@@ -413,12 +457,16 @@ class GeminiService(
             .readTimeout(120, TimeUnit.SECONDS)
             .callTimeout(150, TimeUnit.SECONDS)
             .build()
+
+    private fun geminiEndpoint(modelId: String): String =
+        "https://generativelanguage.googleapis.com/v1beta/models/$modelId:streamGenerateContent"
   }
 }
 
 data class DocumentAnalysisResult(
   val rawJson: String,
   val json: JsonObject?,
+  val documentText: String,
 )
 
 class GeminiException(
