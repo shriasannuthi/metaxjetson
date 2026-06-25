@@ -167,6 +167,9 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                 question = cleanedQuestion,
                 mode = mode,
                 conversation = if (mode == AssistantMode.PHASE_5B) conversation else emptyList(),
+                onPartialText = { partialAnswer ->
+                  _uiState.update { it.copy(answer = partialAnswer) }
+                },
             )
         _uiState.update {
           it.copy(

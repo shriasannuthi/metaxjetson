@@ -39,6 +39,7 @@ class GemmaAssistantService(
       question: String,
       mode: AssistantMode,
       conversation: List<ConversationTurn>,
+      onPartialText: (String) -> Unit = {},
   ): String =
       withContext(Dispatchers.IO) {
         if (!isConfigured()) {
@@ -47,19 +48,19 @@ class GemmaAssistantService(
 
         val request =
             Request.Builder()
-                .url("$GEMINI_ENDPOINT_BASE/$modelId:generateContent?key=$apiKey")
+                .url("$GEMINI_ENDPOINT_BASE/$modelId:streamGenerateContent?alt=sse&key=$apiKey")
                 .post(buildRequestBody(customer, question, mode, conversation).toRequestBody(JSON_MEDIA_TYPE))
                 .build()
 
         httpClient.newCall(request).execute().use { response ->
-          val responseBody = response.body?.string().orEmpty()
           if (!response.isSuccessful) {
+            val responseBody = response.body?.string().orEmpty()
             throw GemmaAssistantException(
                 "Gemma request failed: HTTP ${response.code}. ${responseBody.toGemmaErrorSummary()}",
                 responseBody,
             )
           }
-          responseBody.extractText().ifBlank {
+          streamTextFromResponse(response, onPartialText).ifBlank {
             throw GemmaAssistantException("Gemma returned an empty response.")
           }
         }
@@ -126,23 +127,43 @@ class GemmaAssistantService(
         appendLine(question)
       }
 
-  private fun String.extractText(): String {
-    val parsed = JsonParser.parseString(this).asJsonObject
-    val candidates = parsed.getAsJsonArray("candidates") ?: return ""
-    return buildString {
-      candidates.forEach { candidate: JsonElement ->
-        val parts =
-            candidate
-                .asJsonObject
-                .getAsJsonObject("content")
-                ?.getAsJsonArray("parts")
-                ?: return@forEach
-        parts.forEach { part ->
-          part.asJsonObject.get("text")?.asString?.let(::append)
+  private fun streamTextFromResponse(
+      response: okhttp3.Response,
+      onPartialText: (String) -> Unit,
+  ): String {
+    val responseBody = response.body ?: return ""
+    val source = responseBody.source()
+    val accumulated = StringBuilder()
+    while (!source.exhausted()) {
+      val line = source.readUtf8Line() ?: continue
+      val trimmedLine = line.removePrefix("data:").trim()
+      if (trimmedLine.isEmpty() || trimmedLine == "[DONE]") continue
+
+      val chunk = runCatching { JsonParser.parseString(trimmedLine) }.getOrNull() ?: continue
+      val text = chunk.extractText()
+      if (text.isNotBlank()) {
+        accumulated.append(text)
+        onPartialText(accumulated.toString())
+      }
+    }
+    return accumulated.toString().trim()
+  }
+
+  private fun JsonElement.extractText(): String =
+      buildString {
+        val candidates = asJsonObject.getAsJsonArray("candidates") ?: return@buildString
+        candidates.forEach candidateLoop@{ candidate ->
+          val parts =
+              candidate
+                  .asJsonObject
+                  .getAsJsonObject("content")
+                  ?.getAsJsonArray("parts")
+                  ?: return@candidateLoop
+          parts.forEach { part ->
+            part.asJsonObject.get("text")?.asString?.let(::append)
+          }
         }
       }
-    }.trim()
-  }
 
   private fun String.toGemmaErrorSummary(): String {
     val parsedMessage =

@@ -987,6 +987,13 @@ private fun AssistantResponsePanel(answer: String?, isAnswering: Boolean) {
           fontWeight = FontWeight.Bold,
       )
       when {
+        !answer.isNullOrBlank() -> {
+          Text(
+              text = answer.toMarkdownAnnotatedString(),
+              color = Color.White.copy(alpha = 0.94f),
+              style = MaterialTheme.typography.bodyMedium,
+          )
+        }
         isAnswering -> {
           Row(verticalAlignment = Alignment.CenterVertically) {
             CircularProgressIndicator(
@@ -1001,13 +1008,6 @@ private fun AssistantResponsePanel(answer: String?, isAnswering: Boolean) {
                 style = MaterialTheme.typography.bodyMedium,
             )
           }
-        }
-        !answer.isNullOrBlank() -> {
-          Text(
-              text = answer.toMarkdownAnnotatedString(),
-              color = Color.White.copy(alpha = 0.94f),
-              style = MaterialTheme.typography.bodyMedium,
-          )
         }
         else -> {
           Text(
