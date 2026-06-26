@@ -38,7 +38,6 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
@@ -78,7 +77,7 @@ fun CameraAccessScaffold(
     }
   }
 
-  Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+  Surface(modifier = modifier.fillMaxSize(), color = AppColor.WarmSurface) {
     Box(modifier = Modifier.fillMaxSize()) {
       when {
         uiState.isStreaming ->
@@ -105,14 +104,14 @@ fun CameraAccessScaffold(
           snackbar = { data ->
             Snackbar(
                 shape = RoundedCornerShape(24.dp),
-                containerColor = MaterialTheme.colorScheme.errorContainer,
-                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                containerColor = AppColor.DestructiveBackground,
+                contentColor = AppColor.DestructiveForeground,
             ) {
               Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Default.Error,
-                    contentDescription = "Camera Access error",
-                    tint = MaterialTheme.colorScheme.error,
+                    contentDescription = "WF Meta error",
+                    tint = AppColor.DestructiveForeground,
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(data.visuals.message)

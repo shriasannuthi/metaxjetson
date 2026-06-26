@@ -11,15 +11,21 @@ package com.meta.wearable.dat.externalsampleapps.cameraaccess.ui
 import androidx.compose.ui.graphics.Color
 
 object AppColor {
-  val Green = Color(0xFF61BC63)
-  val Red = Color(0xFFFF3B30)
-  val Yellow = Color(0xFFFFCC00)
-  val DeepBlue = Color(0xFF0064E0)
-  val Ink = Color(0xFF101318)
-  val Slate = Color(0xFF5E6877)
-  val Mist = Color(0xFFF5F7FA)
-  val Glass = Color(0xCC101318)
-  val Line = Color(0x1F101318)
-  val DestructiveBackground = Color(0xFFFFD8DB)
-  val DestructiveForeground = Color(0xFFAA071E)
+  val WfRed = Color(0xFFD71E28)
+  val WfDeepRed = Color(0xFFB31B1B)
+  val WfGold = Color(0xFFFFCD41)
+  val WarmSurface = Color(0xFFF7F3EA)
+  val WarmPanel = Color(0xFFFFFBF2)
+  val Ink = Color(0xFF1F1F1F)
+  val Slate = Color(0xFF625A52)
+  val Mist = Color(0xFFF7F3EA)
+  val Line = Color(0xFFE0D6C8)
+  val Glass = Color(0xE61F1F1F)
+  val StreamGlass = Color(0xE6B31B1B)
+  val Green = Color(0xFF18794E)
+  val Red = Color(0xFFD71E28)
+  val Yellow = Color(0xFFFFCD41)
+  val DeepBlue = WfRed
+  val DestructiveBackground = Color(0xFFFFE3E3)
+  val DestructiveForeground = WfDeepRed
 }
