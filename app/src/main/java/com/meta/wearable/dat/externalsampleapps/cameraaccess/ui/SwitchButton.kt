@@ -16,6 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -32,13 +33,13 @@ fun SwitchButton(
       colors =
           ButtonDefaults.buttonColors(
               containerColor =
-                  if (isDestructive) AppColor.DestructiveBackground else AppColor.DeepBlue,
-              disabledContainerColor = Color.Gray,
-              disabledContentColor = Color.DarkGray,
+                  if (isDestructive) AppColor.DestructiveBackground else AppColor.WfRed,
+              disabledContainerColor = AppColor.Line,
+              disabledContentColor = AppColor.Slate,
               contentColor = if (isDestructive) AppColor.DestructiveForeground else Color.White,
           ),
       enabled = enabled,
   ) {
-    Text(label)
+    Text(label, fontWeight = FontWeight.SemiBold)
   }
 }

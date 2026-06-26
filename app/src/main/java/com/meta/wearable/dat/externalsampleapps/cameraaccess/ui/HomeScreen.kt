@@ -14,6 +14,7 @@ package com.meta.wearable.dat.externalsampleapps.cameraaccess.ui
 
 import android.widget.Toast
 import androidx.activity.compose.LocalActivity
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,7 +23,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,9 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -62,6 +60,7 @@ fun HomeScreen(
       modifier =
           modifier
               .fillMaxSize()
+              .background(AppColor.WarmSurface)
               .verticalScroll(scrollState)
               .padding(horizontal = 24.dp, vertical = 28.dp)
               .navigationBarsPadding(),
@@ -73,26 +72,16 @@ fun HomeScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-      Surface(
-          shape = RoundedCornerShape(28.dp),
-          color = AppColor.DeepBlue.copy(alpha = 0.10f),
-      ) {
-        Icon(
-            painter = painterResource(id = R.drawable.camera_access_icon),
-            contentDescription = stringResource(R.string.camera_access_icon_description),
-            tint = AppColor.DeepBlue,
-            modifier = Modifier.padding(20.dp).size(48.dp * LocalDensity.current.density),
-        )
-      }
+      WfBrandMark(size = 78.dp, showProductName = false)
       Text(
-          text = "Camera Access",
+          text = stringResource(R.string.app_name),
           style = MaterialTheme.typography.headlineMedium,
           fontWeight = FontWeight.Bold,
           color = AppColor.Ink,
           textAlign = TextAlign.Center,
       )
       Text(
-          text = "Connect your glasses once, then move straight into live capture and customer assist.",
+          text = "Connect your glasses once, then move into live customer assist and document intelligence.",
           style = MaterialTheme.typography.bodyLarge,
           color = AppColor.Slate,
           textAlign = TextAlign.Center,

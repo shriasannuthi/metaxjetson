@@ -44,7 +44,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -57,7 +56,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -72,7 +70,7 @@ import com.meta.wearable.dat.externalsampleapps.cameraaccess.wearables.Wearables
 import kotlinx.coroutines.launch
 
 private val UpdateRequiredBackground = Color(0xFFFFF4D6)
-private val UpdateRequiredForeground = Color(0xFF8A4B00)
+private val UpdateRequiredForeground = Color(0xFF7A4C00)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -90,16 +88,16 @@ fun NonStreamScreen(
   val activity = LocalActivity.current
   val context = LocalContext.current
 
-  MaterialTheme(colorScheme = darkColorScheme()) {
+  MaterialTheme {
     Box(
-        modifier = modifier.fillMaxSize().background(AppColor.Ink).padding(horizontal = 20.dp),
+        modifier = modifier.fillMaxSize().background(AppColor.WarmSurface).padding(horizontal = 20.dp),
     ) {
       Box(modifier = Modifier.align(Alignment.TopEnd).systemBarsPadding()) {
         IconButton(onClick = { dropdownExpanded = true }) {
           Icon(
               imageVector = Icons.Default.LinkOff,
               contentDescription = "DisconnectIcon",
-              tint = Color.White,
+              tint = AppColor.WfDeepRed,
               modifier = Modifier.size(28.dp),
           )
         }
@@ -135,26 +133,19 @@ fun NonStreamScreen(
           horizontalAlignment = Alignment.CenterHorizontally,
           verticalArrangement = Arrangement.spacedBy(18.dp),
       ) {
-        Surface(shape = RoundedCornerShape(28.dp), color = Color.White.copy(alpha = 0.10f)) {
-          Icon(
-              painter = painterResource(id = R.drawable.camera_access_icon),
-              contentDescription = stringResource(R.string.camera_access_icon_description),
-              tint = Color.White,
-              modifier = Modifier.padding(20.dp).size(48.dp * LocalDensity.current.density),
-          )
-        }
+        WfBrandMark(size = 72.dp, showProductName = false)
         Text(
             text = stringResource(R.string.non_stream_screen_title),
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
-            color = Color.White,
+            color = AppColor.Ink,
         )
         Text(
             text = stringResource(R.string.non_stream_screen_description),
             textAlign = TextAlign.Center,
             style = MaterialTheme.typography.bodyLarge,
-            color = Color.White.copy(alpha = 0.72f),
+            color = AppColor.Slate,
             modifier = Modifier.padding(horizontal = 12.dp),
         )
         DeviceReadinessCard(
@@ -257,13 +248,14 @@ private fun DeviceReadinessCard(
       when {
         isUpdateRequired -> AppColor.Yellow
         hasActiveDevice -> AppColor.Green
-        else -> Color.White.copy(alpha = 0.68f)
+        else -> AppColor.Slate
       }
 
   Surface(
       modifier = modifier.fillMaxWidth(),
-      shape = RoundedCornerShape(22.dp),
-      color = Color.White.copy(alpha = 0.08f),
+      shape = RoundedCornerShape(8.dp),
+      color = AppColor.WarmPanel,
+      tonalElevation = 1.dp,
   ) {
     Row(
         modifier = Modifier.padding(16.dp),
@@ -279,12 +271,12 @@ private fun DeviceReadinessCard(
             text = status,
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
-            color = Color.White,
+            color = AppColor.Ink,
         )
         Text(
             text = description,
             style = MaterialTheme.typography.bodySmall,
-            color = Color.White.copy(alpha = 0.68f),
+            color = AppColor.Slate,
         )
       }
     }
@@ -293,7 +285,7 @@ private fun DeviceReadinessCard(
 
 @Composable
 private fun StatusPill(iconResId: Int, text: String) {
-  Surface(shape = RoundedCornerShape(18.dp), color = Color.White.copy(alpha = 0.10f)) {
+  Surface(shape = RoundedCornerShape(18.dp), color = AppColor.WarmPanel) {
     Row(
         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -302,13 +294,13 @@ private fun StatusPill(iconResId: Int, text: String) {
       Icon(
           painter = painterResource(id = iconResId),
           contentDescription = null,
-          tint = Color.White.copy(alpha = 0.72f),
+          tint = AppColor.WfDeepRed,
           modifier = Modifier.size(16.dp),
       )
       Text(
           text = text,
           style = MaterialTheme.typography.bodySmall,
-          color = Color.White.copy(alpha = 0.72f),
+          color = AppColor.Slate,
       )
     }
   }

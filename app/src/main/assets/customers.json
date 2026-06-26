@@ -192,64 +192,110 @@
     {
       "id": "CUST004",
       "name": "Shria Sannuthi",
-      "phone": "993472687",
-      "profile": "SME owner evaluating working capital renewal, overdraft enhancement, and vendor payment automation. Prefers practical guidance and document-ready next steps.",
+      "phone": "+1-408-555-2198",
+      "profile": "Business owner running a premium specialty food business and preparing for US market expansion. Evaluating working capital renewal, overdraft enhancement, treasury optimization, and vendor payment automation. Also exploring education financing options for daughter’s upcoming university admission. Prefers practical guidance, proactive financial advice, and document-ready next steps.",
       "faceImage": "shria_face.png",
-      "lastVisit": "2026-06-04",
+
+      "lastVisit": "2026-06-19",
+
       "accounts": [
         {
           "accountNumber": "XXXX-2048",
-          "type": "Current",
-          "balance": "INR 42,10,500",
+          "type": "Business Checking",
+          "balance": "USD 485,200",
           "status": "Active"
         },
         {
           "accountNumber": "XXXX-3478",
-          "type": "Overdraft",
-          "balance": "Limit INR 25,00,000",
+          "type": "Business Line of Credit",
+          "balance": "Limit USD 300,000",
           "status": "Renewal due in 45 days"
+        },
+        {
+          "accountNumber": "XXXX-9812",
+          "type": "High Yield Savings",
+          "balance": "USD 128,750",
+          "status": "Active"
         }
       ],
+
       "transactions": [
         {
           "id": "TXN-SS-001",
-          "date": "2026-06-19",
+          "date": "2026-06-20",
           "description": "Customer receivable from enterprise buyer",
           "category": "Receivable",
-          "amount": "INR 12,40,000",
+          "amount": "USD 148,000",
           "direction": "Credit",
           "status": "Settled"
         },
         {
           "id": "TXN-SS-002",
-          "date": "2026-06-17",
-          "description": "Vendor payment - packaging supplier",
+          "date": "2026-06-18",
+          "description": "Vendor payment - packaging and logistics supplier",
           "category": "Vendor payment",
-          "amount": "INR 8,75,000",
+          "amount": "USD 92,500",
           "direction": "Debit",
           "status": "Settled"
         },
         {
           "id": "TXN-SS-003",
           "date": "2026-06-15",
-          "description": "GST payment",
-          "category": "Tax",
-          "amount": "INR 3,18,500",
+          "description": "Business payroll processing",
+          "category": "Payroll",
+          "amount": "USD 38,400",
           "direction": "Debit",
           "status": "Settled"
         }
       ],
+
       "history": [
         {
-          "date": "2026-06-04",
-          "type": "Relationship call",
-          "notes": "Requested document checklist for working capital renewal, GST statement review, and projected cash-flow format."
+          "date": "2026-06-19",
+          "type": "Relationship meeting",
+          "notes": "Requested business line renewal checklist, treasury optimization recommendations, and projected cash-flow template."
         },
         {
-          "date": "2026-05-17",
+          "date": "2026-06-10",
+          "type": "Financial planning session",
+          "notes": "Discussed daughter's upcoming university applications and explored education loan options, co-borrower requirements, and repayment planning."
+        },
+        {
+          "date": "2026-05-28",
           "type": "Branch visit",
-          "notes": "Discussed vendor payment delays, receivables cycle, and option to increase overdraft limit before seasonal inventory purchase."
+          "notes": "Discussed vendor payment delays, receivables cycle improvements, and possibility of increasing business credit line before seasonal inventory purchase."
         }
+      ],
+
+      "goals": [
+        {
+          "category": "Business",
+          "objective": "Renew business credit line and improve cash-flow efficiency"
+        },
+        {
+          "category": "Family",
+          "objective": "Secure education financing for daughter's undergraduate degree starting Fall 2027 in Harvard University"
+        }
+      ],
+
+      "educationLoanInterest": {
+        "borrower": "Daughter",
+        "purpose": "Undergraduate university education",
+        "targetAmount": "USD 180,000",
+        "status": "Researching options",
+        "preferences": [
+          "Flexible repayment",
+          "Parent co-borrower structure",
+          "Relationship pricing discount",
+          "Deferred payments during study period"
+        ]
+      },
+
+      "nextBestActions": [
+        "Initiate business line renewal",
+        "Prepare education loan prequalification package",
+        "Review cash-flow and debt capacity",
+        "Introduce treasury and vendor payment automation"
       ]
     },
     {

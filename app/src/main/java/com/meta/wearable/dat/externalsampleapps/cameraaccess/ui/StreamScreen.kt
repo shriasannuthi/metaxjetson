@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -105,6 +106,7 @@ import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.Assistant
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.AssistantViewModel
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.ConversationTurn
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.data.Customer
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.stream.DocumentScanPhase
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.stream.StreamViewModel
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.wearables.WearablesViewModel
 import kotlinx.coroutines.delay
@@ -165,8 +167,12 @@ fun StreamScreen(
       }
     }
   }
-  LaunchedEffect(assistantUiState.isListening) {
-    if (!assistantUiState.isListening && didPauseVoiceCommandsForAssistant) {
+  LaunchedEffect(assistantUiState.isListening, assistantUiState.isAnswering) {
+    val isCustomerQnaOngoing = assistantUiState.isListening || assistantUiState.isAnswering
+    if (isCustomerQnaOngoing && !didPauseVoiceCommandsForAssistant) {
+      streamViewModel.pauseVoiceCommandsForAssistant()
+      didPauseVoiceCommandsForAssistant = true
+    } else if (!isCustomerQnaOngoing && didPauseVoiceCommandsForAssistant) {
       streamViewModel.resumeVoiceCommandsAfterAssistant()
       didPauseVoiceCommandsForAssistant = false
     }
@@ -178,7 +184,7 @@ fun StreamScreen(
               .fillMaxSize()
               .background(
                   Brush.verticalGradient(
-                      listOf(Color(0xFF071018), Color(0xFF101318), Color(0xFF17231F)),
+                      listOf(Color(0xFF2A0808), AppColor.WfDeepRed, Color(0xFF1F1F1F)),
                   ),
               )
   ) {
@@ -208,14 +214,35 @@ fun StreamScreen(
         modifier = Modifier.align(Alignment.TopStart).padding(top = 54.dp, start = 16.dp),
     )
 
-    DocumentAnalysisOverlay(
+    WfBrandMark(
+        size = 44.dp,
+        showProductName = false,
+        modifier = Modifier.align(Alignment.TopEnd).padding(top = 54.dp, end = 16.dp),
+    )
+
+    DocumentSessionOverlay(
         analysis = streamUiState.documentAnalysis,
         isAnalyzing = streamUiState.isDocumentAnalyzing,
+        scanPhase = streamUiState.documentScanPhase,
         partialText = streamUiState.documentAnalysisPartial,
-        onDismiss = { streamViewModel.dismissDocumentAnalysis() },
+        scanStatus = streamUiState.documentQuestionStatus,
+        isSessionActive = streamUiState.isDocumentSessionActive,
+        isQuestionListening = streamUiState.isDocumentQuestionListening,
+        questionStatus = streamUiState.documentQuestionStatus,
+        partialQuestion = streamUiState.documentQuestionPartial,
+        lastQuestion = streamUiState.documentLastQuestion,
+        answer = streamUiState.documentAnswer,
+        isAnswering = streamUiState.isDocumentAnswering,
+        error = streamUiState.documentQuestionError,
+        conversation = streamUiState.documentConversation,
+        onStartListening = { streamViewModel.startDocumentQuestionListening() },
+        onStopListeningAndUsePartial = { streamViewModel.stopDocumentQuestionListeningAndUsePartial() },
+        onCancelListening = { streamViewModel.cancelDocumentQuestionListening() },
+        onRetryScan = { streamViewModel.retryDocumentScan() },
+        onEndSession = { streamViewModel.endDocumentSession() },
         modifier =
-            Modifier.align(Alignment.BottomCenter)
-                .padding(start = 24.dp, end = 24.dp, bottom = 104.dp),
+            Modifier.align(Alignment.Center)
+                .padding(start = 16.dp, end = 16.dp, top = 52.dp, bottom = 104.dp),
     )
 
     Box(modifier = Modifier.fillMaxSize().padding(all = 24.dp)) {
@@ -237,7 +264,7 @@ fun StreamScreen(
                   .navigationBarsPadding()
                   .fillMaxWidth()
                   .height(64.dp)
-                  .background(AppColor.Glass, RoundedCornerShape(28.dp))
+                  .background(AppColor.StreamGlass, RoundedCornerShape(28.dp))
                   .padding(6.dp),
           horizontalArrangement = Arrangement.spacedBy(6.dp),
           verticalAlignment = Alignment.CenterVertically,
@@ -275,7 +302,7 @@ fun StreamScreen(
           state = assistantUiState,
           onDismiss = {
             assistantViewModel.cancelListening()
-            if (didPauseVoiceCommandsForAssistant) {
+            if (didPauseVoiceCommandsForAssistant && !assistantUiState.isAnswering) {
               streamViewModel.resumeVoiceCommandsAfterAssistant()
               didPauseVoiceCommandsForAssistant = false
             }
@@ -526,13 +553,18 @@ private fun StreamWindowControls(
       horizontalAlignment = Alignment.End,
       verticalArrangement = Arrangement.spacedBy(10.dp),
   ) {
-    FloatingActionButton(onClick = onOpenAssistant) {
+    FloatingActionButton(
+        onClick = onOpenAssistant,
+        containerColor = AppColor.WfRed,
+        contentColor = Color.White,
+        elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp),
+    ) {
       Icon(
           imageVector = Icons.Default.SupportAgent,
           contentDescription = "Open RM voice assistant",
       )
     }
-    Surface(shape = RoundedCornerShape(28.dp), color = AppColor.Glass) {
+    Surface(shape = RoundedCornerShape(28.dp), color = AppColor.StreamGlass) {
       Row(modifier = Modifier.padding(6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         IconButton(onClick = { onCanvasModeChanged(canvasMode.next()) }, modifier = Modifier.size(42.dp)) {
           Icon(
@@ -955,6 +987,13 @@ private fun AssistantResponsePanel(answer: String?, isAnswering: Boolean) {
           fontWeight = FontWeight.Bold,
       )
       when {
+        !answer.isNullOrBlank() -> {
+          Text(
+              text = answer.toMarkdownAnnotatedString(),
+              color = Color.White.copy(alpha = 0.94f),
+              style = MaterialTheme.typography.bodyMedium,
+          )
+        }
         isAnswering -> {
           Row(verticalAlignment = Alignment.CenterVertically) {
             CircularProgressIndicator(
@@ -969,13 +1008,6 @@ private fun AssistantResponsePanel(answer: String?, isAnswering: Boolean) {
                 style = MaterialTheme.typography.bodyMedium,
             )
           }
-        }
-        !answer.isNullOrBlank() -> {
-          Text(
-              text = answer.toMarkdownAnnotatedString(),
-              color = Color.White.copy(alpha = 0.94f),
-              style = MaterialTheme.typography.bodyMedium,
-          )
         }
         else -> {
           Text(
@@ -1113,54 +1145,95 @@ private fun VoiceCommandOverlay(
 }
 
 @Composable
-private fun DocumentAnalysisOverlay(
+private fun DocumentSessionOverlay(
     analysis: DocumentAnalysisResult?,
     isAnalyzing: Boolean,
+    scanPhase: DocumentScanPhase,
     partialText: String?,
-    onDismiss: () -> Unit,
+    scanStatus: String?,
+    isSessionActive: Boolean,
+    isQuestionListening: Boolean,
+    questionStatus: String?,
+    partialQuestion: String?,
+    lastQuestion: String?,
+    answer: String?,
+    isAnswering: Boolean,
+    error: String?,
+    conversation: List<ConversationTurn>,
+    onStartListening: () -> Unit,
+    onStopListeningAndUsePartial: () -> Unit,
+    onCancelListening: () -> Unit,
+    onRetryScan: () -> Unit,
+    onEndSession: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-  if (analysis == null && !isAnalyzing) return
+  if (!isSessionActive && analysis == null && !isAnalyzing) return
 
-  Box(
-      modifier =
-          modifier
-              .fillMaxWidth()
-              .background(Color.Black.copy(alpha = 0.76f), shape = RoundedCornerShape(8.dp))
-              .padding(12.dp)
+  Column(
+      modifier = modifier.fillMaxSize(),
+      verticalArrangement = Arrangement.spacedBy(12.dp),
+  ) {
+    DocumentAnalysisPanel(
+        analysis = analysis,
+        isAnalyzing = isAnalyzing,
+        scanPhase = scanPhase,
+        partialText = partialText,
+        scanStatus = scanStatus,
+        modifier = Modifier.fillMaxWidth().weight(1f),
+    )
+    DocumentQuestionPanel(
+        analysisReady = analysis != null && !isAnalyzing,
+        scanFailed = scanPhase == DocumentScanPhase.FAILED,
+        isListening = isQuestionListening,
+        status = questionStatus,
+        partialQuestion = partialQuestion,
+        lastQuestion = lastQuestion,
+        answer = answer,
+        isAnswering = isAnswering,
+        error = error,
+        conversation = conversation,
+        onStartListening = onStartListening,
+        onStopListeningAndUsePartial = onStopListeningAndUsePartial,
+        onCancelListening = onCancelListening,
+        onRetryScan = onRetryScan,
+        onEndSession = onEndSession,
+        modifier = Modifier.fillMaxWidth().weight(1f),
+    )
+  }
+}
+
+@Composable
+private fun DocumentAnalysisPanel(
+    analysis: DocumentAnalysisResult?,
+    isAnalyzing: Boolean,
+    scanPhase: DocumentScanPhase,
+    partialText: String?,
+    scanStatus: String?,
+    modifier: Modifier = Modifier,
+) {
+  Surface(
+      modifier = modifier,
+      shape = RoundedCornerShape(10.dp),
+      color = Color.Black.copy(alpha = 0.76f),
   ) {
     Column(
-        modifier =
-            Modifier.fillMaxWidth()
-                .height(220.dp)
-                .verticalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxWidth().padding(12.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-      Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.SpaceBetween,
-          verticalAlignment = Alignment.CenterVertically,
-      ) {
-        Text(
-            text = analysis?.json?.stringValue("documentType") ?: "Document scan",
-            color = Color.White,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-          Icon(
-              imageVector = Icons.Default.Close,
-              contentDescription = "Dismiss document analysis",
-              tint = Color.White,
-          )
-        }
-      }
+      Text(
+          text = analysis?.json?.stringValue("documentType") ?: "Document scan",
+          color = Color.White,
+          style = MaterialTheme.typography.titleSmall,
+          fontWeight = FontWeight.SemiBold,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+      )
 
-      if (isAnalyzing) {
+      if (scanPhase == DocumentScanPhase.FAILED) {
+        AnalysisText(label = "Status", value = scanStatus ?: "Scan failed")
+      } else if (isAnalyzing) {
         partialText?.toLiveAnalysisText()?.takeIf { it.isNotBlank() }?.let {
-          AnalysisText(label = "Live", value = it)
+          AnalysisText(label = scanStatus ?: "Live", value = it)
         } ?: run {
           Row(verticalAlignment = Alignment.CenterVertically) {
             CircularProgressIndicator(
@@ -1170,39 +1243,227 @@ private fun DocumentAnalysisOverlay(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Analyzing document",
+                text = scanStatus ?: "Analyzing document",
                 color = Color.White.copy(alpha = 0.84f),
                 style = MaterialTheme.typography.bodySmall,
             )
           }
         }
+      } else if (analysis?.json == null) {
+        AnalysisText(label = "Raw", value = analysis?.rawJson.orEmpty())
       } else {
-        if (analysis?.json == null) {
-          AnalysisText(label = "Raw", value = analysis?.rawJson.orEmpty())
-        } else {
-          analysis.json.stringValue("summary")?.let {
-            AnalysisText(label = "Summary", value = it)
-          }
-          val explanation =
-              analysis.json.stringValue("explanation")
-                  ?: analysis.json.stringValue("customerRelevance")
-          explanation?.let {
-            AnalysisText(label = "Explanation", value = it)
-          }
-          val extractedFields = analysis.json.get("extractedFields")
-          extractedFields
-              ?.takeIf { !it.isJsonNull }
-              ?.toDisplayValue()
-              ?.takeIf { it.isNotBlank() }
-              ?.let { AnalysisText(label = "Fields", value = it) }
-          analysis.json.arrayValue("riskFlags")?.takeIf { it.size() > 0 }?.let {
-            AnalysisText(label = "Flags", value = it.toCompactDisplay())
-          }
-          analysis.json.arrayValue("recommendedActions")?.takeIf { it.size() > 0 }?.let {
-            AnalysisText(label = "Actions", value = it.toCompactDisplay())
-          }
+        analysis.json.stringValue("summary")?.let { AnalysisText(label = "Summary", value = it) }
+        val explanation =
+            analysis.json.stringValue("explanation") ?: analysis.json.stringValue("customerRelevance")
+        explanation?.let { AnalysisText(label = "Explanation", value = it) }
+        analysis.json.get("extractedFields")
+            ?.takeIf { !it.isJsonNull }
+            ?.toDisplayValue()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { AnalysisText(label = "Fields", value = it) }
+        analysis.json.arrayValue("riskFlags")?.takeIf { it.size() > 0 }?.let {
+          AnalysisText(label = "Flags", value = it.toCompactDisplay())
+        }
+        analysis.json.arrayValue("recommendedActions")?.takeIf { it.size() > 0 }?.let {
+          AnalysisText(label = "Actions", value = it.toCompactDisplay())
         }
       }
+    }
+  }
+}
+
+@Composable
+private fun DocumentQuestionPanel(
+    analysisReady: Boolean,
+    scanFailed: Boolean,
+    isListening: Boolean,
+    status: String?,
+    partialQuestion: String?,
+    lastQuestion: String?,
+    answer: String?,
+    isAnswering: Boolean,
+    error: String?,
+    conversation: List<ConversationTurn>,
+    onStartListening: () -> Unit,
+    onStopListeningAndUsePartial: () -> Unit,
+    onCancelListening: () -> Unit,
+    onRetryScan: () -> Unit,
+    onEndSession: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+  Surface(
+      modifier = modifier,
+      shape = RoundedCornerShape(10.dp),
+      color = Color.Black.copy(alpha = 0.78f),
+  ) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Text(
+            text = "Ask about this document",
+            color = Color.White,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        TextButton(onClick = onEndSession) {
+          Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(14.dp))
+          Spacer(modifier = Modifier.width(4.dp))
+          Text("End Session", maxLines = 1)
+        }
+      }
+
+      DocumentQuestionActions(
+          analysisReady = analysisReady,
+          scanFailed = scanFailed,
+          isListening = isListening,
+          isAnswering = isAnswering,
+          onStartListening = onStartListening,
+          onStopListeningAndUsePartial = onStopListeningAndUsePartial,
+          onCancelListening = onCancelListening,
+          onRetryScan = onRetryScan,
+      )
+
+      Column(
+          modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()),
+          verticalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        when {
+          scanFailed -> {
+            Text(
+                text = error ?: "Could not read document. Retry the scan or end this session.",
+                color = AppColor.Red,
+                style = MaterialTheme.typography.bodySmall,
+            )
+          }
+          !analysisReady -> {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              CircularProgressIndicator(
+                  modifier = Modifier.size(16.dp),
+                  strokeWidth = 2.dp,
+                  color = Color.White,
+              )
+              Spacer(modifier = Modifier.width(8.dp))
+              Text(
+                  text = "Q&A will be ready after the scan finishes.",
+                  color = Color.White.copy(alpha = 0.74f),
+                  style = MaterialTheme.typography.bodySmall,
+              )
+            }
+          }
+          isAnswering -> {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              CircularProgressIndicator(
+                  modifier = Modifier.size(16.dp),
+                  strokeWidth = 2.dp,
+                  color = Color.White,
+              )
+              Spacer(modifier = Modifier.width(8.dp))
+              Text(
+                  text = "Answering from this document...",
+                  color = Color.White.copy(alpha = 0.84f),
+                  style = MaterialTheme.typography.bodySmall,
+              )
+            }
+          }
+          !answer.isNullOrBlank() -> {
+            AnalysisText(label = "Answer", value = answer)
+          }
+          else -> {
+            Text(
+                text = status ?: "Tap Ask and speak a question about the scanned document.",
+                color = Color.White.copy(alpha = 0.70f),
+                style = MaterialTheme.typography.bodySmall,
+            )
+          }
+        }
+
+        partialQuestion?.takeIf { it.isNotBlank() }?.let {
+          AnalysisText(label = if (isListening) "Listening" else "Question", value = it)
+        }
+        lastQuestion?.takeIf { it.isNotBlank() && it != partialQuestion }?.let {
+          AnalysisText(label = "Last question", value = it)
+        }
+        error?.takeIf { it.isNotBlank() && !scanFailed }?.let {
+          Text(text = it, color = AppColor.Red, style = MaterialTheme.typography.bodySmall)
+        }
+        DocumentConversationStrip(turns = conversation.takeLast(4))
+      }
+    }
+  }
+}
+
+@Composable
+private fun DocumentQuestionActions(
+    analysisReady: Boolean,
+    scanFailed: Boolean,
+    isListening: Boolean,
+    isAnswering: Boolean,
+    onStartListening: () -> Unit,
+    onStopListeningAndUsePartial: () -> Unit,
+    onCancelListening: () -> Unit,
+    onRetryScan: () -> Unit,
+) {
+  Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+      verticalAlignment = Alignment.CenterVertically,
+  ) {
+    if (scanFailed) {
+      Button(
+          onClick = onRetryScan,
+          modifier = Modifier.weight(1f),
+      ) {
+        Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(14.dp))
+        Spacer(modifier = Modifier.width(4.dp))
+        Text("Retry scan")
+      }
+    } else {
+      Button(
+          onClick = onStartListening,
+          enabled = analysisReady && !isListening && !isAnswering,
+          modifier = Modifier.weight(1f),
+      ) {
+        Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(14.dp))
+        Spacer(modifier = Modifier.width(4.dp))
+        Text("Ask")
+      }
+    }
+    if (isListening) {
+      TextButton(onClick = onStopListeningAndUsePartial) {
+        Text("Use", maxLines = 1, style = MaterialTheme.typography.labelSmall)
+      }
+      TextButton(onClick = onCancelListening) {
+        Text("Cancel", maxLines = 1, style = MaterialTheme.typography.labelSmall)
+      }
+    }
+  }
+}
+
+@Composable
+private fun DocumentConversationStrip(turns: List<ConversationTurn>) {
+  if (turns.isEmpty()) return
+  Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Text(
+        text = "Document Q&A history",
+        color = Color.White.copy(alpha = 0.58f),
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.SemiBold,
+    )
+    turns.forEach { turn ->
+      val label = if (turn.role.name == "CUSTOMER") "Question" else "Answer"
+      Text(
+          text = "$label: ${turn.text}",
+          color = Color.White.copy(alpha = 0.72f),
+          style = MaterialTheme.typography.labelSmall,
+          maxLines = 2,
+          overflow = TextOverflow.Ellipsis,
+      )
     }
   }
 }
