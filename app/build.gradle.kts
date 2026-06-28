@@ -21,33 +21,10 @@ val localProperties =
         localPropertiesFile.inputStream().use(::load)
       }
     }
-val geminiApiKey =
-    localProperties.getProperty("GEMINI_API_KEY", "").replace("\\", "\\\\").replace("\"", "\\\"")
-val gemmaModelId =
-    localProperties.getProperty("GEMMA_MODEL_ID", "gemma-3-27b-it")
-        .replace("\\", "\\\\")
-        .replace("\"", "\\\"")
-val geminiSessionModelId =
-    localProperties.getProperty("GEMINI_SESSION_MODEL_ID", "gemini-3.1-flash-lite")
-        .replace("\\", "\\\\")
-        .replace("\"", "\\\"")
-val geminiDocumentGroundingModelId =
-    localProperties.getProperty("GEMINI_DOCUMENT_GROUNDING_MODEL_ID", "gemini-3.5-flash")
-        .replace("\\", "\\\\")
-        .replace("\"", "\\\"")
-val groqApiKey =
-    localProperties.getProperty("GROQ_API_KEY", "").replace("\\", "\\\\").replace("\"", "\\\"")
-val groqDocumentGroundingModelId =
-    localProperties
-        .getProperty("GROQ_DOCUMENT_GROUNDING_MODEL_ID", "qwen/qwen3.6-27b")
-        .replace("\\", "\\\\")
-        .replace("\"", "\\\"")
-val xaiApiKey =
-    localProperties.getProperty("XAI_API_KEY", "").replace("\\", "\\\\").replace("\"", "\\\"")
-val xaiDocumentGroundingModelId =
-    localProperties.getProperty("XAI_DOCUMENT_GROUNDING_MODEL_ID", "grok-4.20-0309-reasoning")
-        .replace("\\", "\\\\")
-        .replace("\"", "\\\"")
+val localAiBaseUrl =
+    localProperties.getProperty("LOCAL_AI_BASE_URL", "").replace("\\", "\\\\").replace("\"", "\\\"")
+val localAiToken =
+    localProperties.getProperty("LOCAL_AI_TOKEN", "").replace("\\", "\\\\").replace("\"", "\\\"")
 
 android {
   namespace = "com.meta.wearable.dat.externalsampleapps.cameraaccess"
@@ -64,46 +41,8 @@ android {
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     vectorDrawables { useSupportLibrary = true }
-    buildConfigField(
-        "String",
-        "GEMINI_API_KEY",
-        "\"$geminiApiKey\"",
-    )
-    buildConfigField(
-        "String",
-        "GEMMA_MODEL_ID",
-        "\"$gemmaModelId\"",
-    )
-    buildConfigField(
-        "String",
-        "GEMINI_SESSION_MODEL_ID",
-        "\"$geminiSessionModelId\"",
-    )
-    buildConfigField(
-        "String",
-        "GEMINI_DOCUMENT_GROUNDING_MODEL_ID",
-        "\"$geminiDocumentGroundingModelId\"",
-    )
-    buildConfigField(
-        "String",
-        "GROQ_API_KEY",
-        "\"$groqApiKey\"",
-    )
-    buildConfigField(
-        "String",
-        "GROQ_DOCUMENT_GROUNDING_MODEL_ID",
-        "\"$groqDocumentGroundingModelId\"",
-    )
-    buildConfigField(
-        "String",
-        "XAI_API_KEY",
-        "\"$xaiApiKey\"",
-    )
-    buildConfigField(
-        "String",
-        "XAI_DOCUMENT_GROUNDING_MODEL_ID",
-        "\"$xaiDocumentGroundingModelId\"",
-    )
+    buildConfigField("String", "LOCAL_AI_BASE_URL", "\"$localAiBaseUrl\"")
+    buildConfigField("String", "LOCAL_AI_TOKEN", "\"$localAiToken\"")
 
     // Meta Wearables Device Access Toolkit Setup
     // Without Developer Mode, these values need to be set with credentials from the app registered
@@ -156,4 +95,6 @@ dependencies {
   androidTestImplementation(libs.androidx.ui.test.junit4)
   androidTestImplementation(libs.androidx.test.uiautomator)
   androidTestImplementation(libs.androidx.test.rules)
+  testImplementation("junit:junit:4.13.2")
+  testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }

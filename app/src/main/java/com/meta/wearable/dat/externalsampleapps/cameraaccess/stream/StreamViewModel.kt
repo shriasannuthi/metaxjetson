@@ -47,7 +47,7 @@ import com.meta.wearable.dat.core.types.DeviceSessionError
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.R
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.FaceRecognitionResult
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.FaceRecognitionService
-import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.GeminiService
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.DocumentAiService
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.AssistantSpeechListener
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.ConversationRole
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.ConversationTurn
@@ -99,7 +99,7 @@ class StreamViewModel(
   }
 
   private val deviceSelector: DeviceSelector = wearablesViewModel.deviceSelector
-  private val geminiService: GeminiService = GeminiService(application)
+  private val documentAiService: DocumentAiService = DocumentAiService(application)
   private val faceRecognitionService: FaceRecognitionService = FaceRecognitionService(application)
   private var session: DeviceSession? = null
 
@@ -523,10 +523,10 @@ class StreamViewModel(
       return
     }
 
-    if (!geminiService.isConfigured()) {
-      Log.w(TAG, "Skipping document scan because GEMINI_API_KEY is not configured")
+    if (!documentAiService.isConfigured()) {
+      Log.w(TAG, "Skipping document scan because the local AI server is not configured")
       _uiState.update {
-        it.copy(voiceCommandStatus = "Add GEMINI_API_KEY to scan documents")
+        it.copy(voiceCommandStatus = "Configure the local AI server to scan documents")
       }
       return
     }
@@ -586,7 +586,7 @@ class StreamViewModel(
             "Starting document grounding from captured photo: bitmap=${documentBitmap.width}x${documentBitmap.height}",
         )
         val groundedText =
-            geminiService.transcribeDocumentImage(documentBitmap) { partialText ->
+            documentAiService.transcribeDocumentImage(documentBitmap) { partialText ->
               _uiState.update { state ->
                 state.copy(
                     documentAnalysisPartial = partialText.take(MAX_PARTIAL_RESPONSE_CHARS),
@@ -612,7 +612,7 @@ class StreamViewModel(
             "Starting document analysis from grounded text: chars=${groundedText.length}",
         )
         val analysis =
-            geminiService.analyzeDocument(groundedText) { partialText ->
+            documentAiService.analyzeDocument(groundedText) { partialText ->
               _uiState.update { state ->
                 state.copy(documentAnalysisPartial = partialText.take(MAX_PARTIAL_RESPONSE_CHARS))
               }
@@ -816,7 +816,7 @@ class StreamViewModel(
     viewModelScope.launch {
       try {
         val answer =
-            geminiService.answerDocumentQuestion(
+            documentAiService.answerDocumentQuestion(
                 documentText = documentText,
                 question = cleanedQuestion,
                 conversation = conversation,

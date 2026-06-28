@@ -8,4 +8,8 @@
 /captures
 .externalNativeBuild
 .cxx
+__pycache__/
+.pytest_cache/
+/inference_server/.env
+/inference_server/.venv/
 local.properties

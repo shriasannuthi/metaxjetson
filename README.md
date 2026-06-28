@@ -1,6 +1,7 @@
-# Camera Access App
+# Local Meta Glasses Assistant
 
-A sample Android application demonstrating integration with Meta Wearables Device Access Toolkit. This app showcases streaming video from Meta AI glasses, capturing photos, and managing connection states.
+An Android application that connects to Meta AI glasses and processes customer questions and
+document scans on a local Windows laptop. Runtime AI processing does not require internet access.
 
 ## Features
 
@@ -8,7 +9,30 @@ A sample Android application demonstrating integration with Meta Wearables Devic
 - Stream camera feed from the device
 - Capture photos from glasses
 - Share captured photos
+- Match enrolled faces locally with ML Kit and TensorFlow Lite
+- Answer customer and document questions with local Gemma 3 through Ollama
+- Convert document photos to structured Markdown with local PP-StructureV3 and PP-OCRv5
 - Open firmware and DAT glasses app update flows when required
+
+## Local AI Setup
+
+Follow the complete beginner-oriented guide in
+[docs/WINDOWS_LOCAL_SETUP.md](docs/WINDOWS_LOCAL_SETUP.md). It covers Ollama, Gemma, Python,
+PaddleOCR, USB-only hosting, Android configuration, and the final no-network test.
+
+The runtime architecture is:
+
+```text
+Android app -> phone 127.0.0.1:8000
+            -> USB cable / adb reverse
+            -> laptop 127.0.0.1:8000
+               |-> Ollama/Gemma on RTX 4060
+               `-> PP-StructureV3/PP-OCRv5 on CPU
+```
+
+The phone must remain connected with a data-capable USB cable while local AI features are in use.
+Wi-Fi, Ethernet, cellular data, mobile hotspots, and USB tethering are not used. Bluetooth remains
+enabled on the phone only because the glasses require it.
 
 ## Prerequisites
 
