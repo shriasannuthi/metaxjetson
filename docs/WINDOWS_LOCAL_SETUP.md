@@ -17,29 +17,10 @@ Android app -> phone 127.0.0.1:8000
 USB debugging is required. USB tethering is different and must remain off. Bluetooth remains
 enabled on the phone only because the Meta glasses require it.
 
-## Already Completed Part 6 of the Previous Guide?
-
-The previous guide configured the app with a laptop Wi-Fi address. Perform these actions manually
-before continuing:
-
-1. Keep the phone connected with a data-capable USB cable.
-2. Keep internet available temporarily while rebuilding the app.
-3. On the phone, open **Settings > System > Developer options**.
-4. Confirm **USB debugging** is enabled.
-5. If **Allow USB debugging?** appears, select **Always allow from this computer**, then select
-   **Allow**.
-6. Confirm **USB tethering** is off.
-7. Open PowerShell in the repository.
-8. Run:
-
-   ```powershell
-   Set-ExecutionPolicy -Scope Process Bypass
-   .\inference_server\configure_android.ps1 -BaseUrl "http://127.0.0.1:8000"
-   ```
-
-9. In Android Studio, select the physical phone and choose **Run > Run 'app'**.
-10. Wait until Android Studio installs and launches the updated app.
-11. Continue at **Part 6: Disconnect Every External Network** below.
+Complete every numbered part once, in order. After the first successful setup and test, use
+[DAILY_START_STOP.md](DAILY_START_STOP.md) for normal operation. Read
+[ARCHITECTURE_OVERVIEW.md](ARCHITECTURE_OVERVIEW.md) for an explanation of every device, process,
+terminal, model, and data flow.
 
 ## What Runs Where
 
@@ -150,6 +131,9 @@ Keep internet access enabled throughout this part.
 
 It is normal for `ollama ps` to show only column headings here. The USB startup script loads Gemma
 into GPU memory later.
+
+The setup configures PaddleOCR to use standard CPU kernels. The affected PaddlePaddle 3.3.0 oneDNN
+path is disabled automatically, so no separate repair or package downgrade is required.
 
 ## Part 5: Configure and Install Android for USB
 
@@ -264,37 +248,39 @@ No Windows Firewall permission is required because the gateway listens only on l
 2. Pair or reconnect the glasses.
 3. Enter the camera stream.
 4. Confirm local face matching identifies an enrolled test customer.
-5. Say **Hey Meta scan** while viewing a clear printed document.
-6. Confirm grounded Markdown appears, followed by structured document analysis.
-7. Ask a spoken follow-up question about the document.
-8. Open the customer assistant and ask a question about the matched customer.
-9. Repeat the document and customer flows twice.
-10. In Android Studio, open **View > Tool Windows > App Inspection > Network Inspector**.
-11. Confirm app-owned AI requests go only to `127.0.0.1:8000`.
+5. Hold a clear printed document close enough that its text fills most of the glasses view. Use
+   bright, even lighting and keep your head steady.
+6. Say **Hey Meta scan**.
+7. Confirm real document text appears, followed by structured document analysis.
+8. Confirm the result does not contain generated paths such as `imgs/img_in_image_box...`.
+9. Ask a spoken follow-up question about the document and confirm the answer is supported by the
+   visible document text.
+10. Open the customer assistant and ask a question about the matched customer.
+11. Repeat the document and customer flows twice.
+12. In Android Studio, open **View > Tool Windows > App Inspection > Network Inspector**.
+13. Confirm app-owned AI requests go only to `127.0.0.1:8000`.
 
 Warm acceptance targets are 8 seconds for chat, 20 seconds for grounding, and 30 seconds for a
 complete scan plus analysis.
 
-## Part 10: Everyday Startup
+## Part 10: Finish the One-Time Setup
 
-1. Connect the phone with the same data-capable USB cable.
-2. Unlock it and approve USB debugging if prompted.
-3. Enable airplane mode on the phone, keep Wi-Fi off, and re-enable Bluetooth for the glasses.
-4. Keep laptop Wi-Fi and Mobile Hotspot off and Ethernet unplugged.
-5. Open Ollama from Start if it is not already running.
-6. Open PowerShell in the repository.
-7. Run:
+The one-time setup is complete when all of these are true:
 
-   ```powershell
-   Set-ExecutionPolicy -Scope Process Bypass
-   .\inference_server\start_local_ai.ps1 -UsbOnly
-   ```
+- The phone health page reports every component as `ready`.
+- Customer Q&A returns a correct local answer.
+- A document scan returns text from the physical document, not a generated image filename.
+- Document analysis and follow-up Q&A use that grounded text.
+- Both flows work with laptop Wi-Fi/Ethernet and phone Wi-Fi/cellular disabled.
+- `ollama ps` reports Gemma on GPU.
 
-8. Keep the USB cable and PowerShell window connected during use.
-9. Confirm the phone health URL reports `ready`.
-10. Launch the Android app.
+Bookmark these documents:
 
-No installer, model download, Android rebuild, router, or network connection is needed again.
+1. [DAILY_START_STOP.md](DAILY_START_STOP.md) for every future startup and complete shutdown.
+2. [ARCHITECTURE_OVERVIEW.md](ARCHITECTURE_OVERVIEW.md) to understand what is running and where.
+
+No installer, model download, Android rebuild, router, or network connection is required for
+ordinary use after this point.
 
 ## If the USB Cable Disconnects
 
@@ -365,6 +351,23 @@ Open Ollama from Start, run `ollama list`, and confirm `gemma3:4b-it-q4_K_M` is 
 
 Read `ocrError` in the health response. Rerun `setup_windows.ps1` while temporarily online to
 complete any missing model download. OCR intentionally uses CPU PaddlePaddle.
+
+### Scan fails with a oneDNN or `ConvertPirAttribute2RuntimeAttribute` error
+
+The current gateway disables the affected oneDNN path automatically. Stop the gateway with
+`Ctrl+C`, confirm the repository contains the latest `inference_server/runtime.py`, and rerun:
+
+```powershell
+.\inference_server\start_local_ai.ps1 -UsbOnly
+```
+
+No Android rebuild is required for this server-side fix.
+
+### Analysis describes a random image or shows `img_in_image_box`
+
+The current gateway removes Paddle-generated image references and uses underlying recognized OCR
+lines. Stop and restart the gateway so it loads the current Python code. Then scan the physical
+document again with its text filling most of the glasses view. No Android rebuild is required.
 
 ### Grounding consistently takes more than 20 seconds
 
