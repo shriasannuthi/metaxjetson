@@ -150,6 +150,7 @@ dependencies {
   implementation(libs.mwdat.camera)
   implementation(libs.mwdat.mockdevice)
   implementation(libs.tensorflow.lite)
+  implementation(project(":microwakeword"))
   implementation("com.squareup.okhttp3:okhttp:4.12.0")
   implementation("com.google.code.gson:gson:2.11.0")
   implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.0")

@@ -47,6 +47,8 @@ class WearablesViewModel(application: Application) : AndroidViewModel(applicatio
   private var monitoringStarted = false
   private val deviceMonitoringJobs = mutableMapOf<DeviceIdentifier, Job>()
   private val deviceCompatibility = mutableMapOf<DeviceIdentifier, DeviceCompatibility>()
+  internal var isVoiceSessionActive: Boolean = false
+    private set
 
   private fun startMonitoring() {
     if (monitoringStarted) {
@@ -159,7 +161,12 @@ class WearablesViewModel(application: Application) : AndroidViewModel(applicatio
     }
   }
 
-  fun navigateToDeviceSelection() {
+  fun setVoiceSessionActive(active: Boolean) {
+    isVoiceSessionActive = active
+  }
+
+  fun navigateToDeviceSelection(force: Boolean = false) {
+    if (isVoiceSessionActive && !force) return
     _uiState.update { it.copy(isStreaming = false) }
   }
 

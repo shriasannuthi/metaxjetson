@@ -27,8 +27,16 @@ enum class DocumentScanPhase {
   FAILED,
 }
 
+enum class StreamOperatingMode {
+  CAMERA_IDENTIFYING,
+  VOICE_SESSION,
+}
+
 data class StreamUiState(
     val streamState: StreamState = StreamState.STOPPED,
+    val operatingMode: StreamOperatingMode = StreamOperatingMode.CAMERA_IDENTIFYING,
+    val isCameraActive: Boolean = true,
+    val pendingCustomerQna: Boolean = false,
     val videoFrame: Bitmap? = null,
     val videoFrameCount: Int = 0,
     val audioFrameCount: Int = 0,

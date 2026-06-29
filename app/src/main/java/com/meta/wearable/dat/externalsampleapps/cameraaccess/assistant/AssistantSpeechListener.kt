@@ -10,7 +10,6 @@ package com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant
 
 import android.content.Context
 import android.content.Intent
-import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Bundle
 import android.os.Handler
@@ -19,6 +18,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.voice.VoiceAudioEnvironment
 import java.util.Locale
 
 class AssistantSpeechListener(
@@ -167,17 +167,11 @@ class AssistantSpeechListener(
   private fun destroyRecognizer() {
     runCatching { recognizer?.destroy() }
     recognizer = null
-    runCatching { audioManager.clearCommunicationDevice() }
+    runCatching { VoiceAudioEnvironment.releaseCommunicationDevice(audioManager) }
   }
 
   private fun routeAudioToGlassesIfAvailable() {
-    val scoDevice =
-        audioManager.availableCommunicationDevices.firstOrNull {
-          it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO
-        }
-    if (scoDevice != null) {
-      audioManager.setCommunicationDevice(scoDevice)
-    }
+    VoiceAudioEnvironment.routeSpeechInput(appContext, audioManager)
   }
 
   private fun Int.description(): String =

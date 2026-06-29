@@ -51,3 +51,4 @@ dependencyResolutionManagement {
 rootProject.name = "CameraAccess"
 
 include(":app")
+include(":microwakeword")

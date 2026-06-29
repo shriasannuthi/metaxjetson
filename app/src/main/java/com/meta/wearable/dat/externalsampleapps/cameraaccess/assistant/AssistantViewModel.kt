@@ -27,6 +27,8 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
   private var speechListener: AssistantSpeechListener? = null
   private var selectedCustomerId: String? = null
 
+  var onAnswerReady: (suspend (String) -> Unit)? = null
+
   private val _uiState = MutableStateFlow(AssistantUiState())
   val uiState: StateFlow<AssistantUiState> = _uiState.asStateFlow()
 
@@ -178,6 +180,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
               conversation = it.conversation + ConversationTurn(ConversationRole.ASSISTANT, answer),
           )
         }
+        onAnswerReady?.invoke(answer)
       } catch (e: Exception) {
         _uiState.update {
           it.copy(

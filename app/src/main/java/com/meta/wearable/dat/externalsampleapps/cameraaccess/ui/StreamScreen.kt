@@ -154,17 +154,26 @@ fun StreamScreen(
   var isStreamHudExpanded by remember { mutableStateOf(false) }
 
   LaunchedEffect(Unit) { streamViewModel.startStream() }
+  LaunchedEffect(Unit) {
+    assistantViewModel.onAnswerReady = { answer -> streamViewModel.speakQnaResponse(answer) }
+  }
   LaunchedEffect(streamUiState.matchedCustomer?.id) {
     streamUiState.matchedCustomer?.let { customer ->
       assistantViewModel.selectCustomer(customer)
       if (lastAutoListenedCustomerId != customer.id) {
         lastAutoListenedCustomerId = customer.id
         isAssistantVisible = true
-        streamViewModel.pauseVoiceCommandsForAssistant()
-        didPauseVoiceCommandsForAssistant = true
-        delay(250)
-        assistantViewModel.startListening()
       }
+    }
+  }
+  LaunchedEffect(streamUiState.pendingCustomerQna) {
+    if (streamUiState.pendingCustomerQna) {
+      streamViewModel.clearPendingCustomerQna()
+      isAssistantVisible = true
+      streamViewModel.pauseWakeForAssistant()
+      didPauseVoiceCommandsForAssistant = true
+      delay(400)
+      assistantViewModel.startListening()
     }
   }
   LaunchedEffect(assistantUiState.isListening, assistantUiState.isAnswering) {
@@ -274,7 +283,7 @@ fun StreamScreen(
             onClick = {
               streamViewModel.stopStream { showingDialog ->
                 if (!showingDialog) {
-                  wearablesViewModel.navigateToDeviceSelection()
+                  wearablesViewModel.navigateToDeviceSelection(force = true)
                 }
               }
             },
@@ -355,7 +364,7 @@ fun StreamScreen(
             channelCount = recordedAudio.channelCount,
             onDismiss = {
                 streamViewModel.hideAudioPlayback()
-                wearablesViewModel.navigateToDeviceSelection()
+                wearablesViewModel.navigateToDeviceSelection(force = true)
             }
         )
     }
@@ -696,7 +705,7 @@ private fun StreamHud(
               if (hasVoice) {
                 StatusRow(
                     icon = Icons.Default.Mic,
-                    title = voiceStatus ?: "Hey Meta",
+                    title = voiceStatus ?: stringResource(R.string.voice_listening_hey_charly),
                     value = transcript?.takeIf { it.isNotBlank() } ?: "Listening",
                     tint = if (isAnalyzing) AppColor.Yellow else AppColor.Green,
                 )
