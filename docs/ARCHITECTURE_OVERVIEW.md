@@ -19,10 +19,10 @@ FastAPI gateway on laptop 127.0.0.1:8000
     |
     | local Ollama API 127.0.0.1:11434
     v
-Gemma 3 4B Q4 on RTX 4060
+Qwen3-VL 8B on RTX 4060
 ```
 
-The system has one AI model. Gemma handles text and images on the GPU. No document model or
+The system has one AI model. Qwen3-VL handles text and images on the GPU. No document model or
 language model performs CPU inference.
 
 ## Meta Glasses
@@ -34,7 +34,7 @@ The glasses provide:
 - Microphone audio routed to the phone.
 - Bluetooth communication with the phone.
 
-They do not run Gemma, FastAPI, or the Android application. They are controlled through Meta's
+They do not run Qwen3-VL, FastAPI, or the Android application. They are controlled through Meta's
 Device Access Toolkit.
 
 ## Android Phone
@@ -49,7 +49,7 @@ The installed application runs:
 - Prompt construction for customer Q&A, document analysis, and document Q&A.
 - `LocalAiClient`, which calls `http://127.0.0.1:8000`.
 
-The phone does not run Gemma. Its localhost request is transported to the laptop by ADB reverse.
+The phone does not run Qwen3-VL. Its localhost request is transported to the laptop by ADB reverse.
 
 ## ADB Reverse and USB
 
@@ -79,11 +79,11 @@ Running:
 does the following:
 
 1. Reads the ignored local token and Ollama settings.
-2. Confirms Ollama is running and Gemma is installed.
+2. Confirms Ollama is running and Qwen3-VL is installed.
 3. Finds `adb.exe` and one authorized physical phone.
 4. Rejects active emulators and ambiguous device selections.
 5. creates the port-8000 USB reverse rule.
-6. Preloads Gemma into GPU memory.
+6. Preloads Qwen3-VL into GPU memory.
 7. Starts Python, Uvicorn, and FastAPI on laptop localhost.
 8. Prints request logs until `Ctrl+C` is pressed.
 
@@ -91,12 +91,12 @@ The terminal must stay open because it owns the FastAPI process. Python performs
 multipart handling, JPEG/PNG validation, and local Ollama calls. These are lightweight CPU tasks,
 not model inference.
 
-## Ollama and Gemma
+## Ollama and Qwen3-VL
 
 Ollama is a separate Windows application listening only at `127.0.0.1:11434`. It keeps
-`gemma3:4b-it-q4_K_M` loaded in RTX 4060 memory.
+`qwen3-vl:8b` loaded in RTX 4060 memory.
 
-Gemma performs:
+Qwen3-VL performs:
 
 - Customer Q&A from text prompts.
 - Document image transcription through its vision input.
@@ -110,9 +110,9 @@ GPU memory spikes and nondeterministic overlapping responses.
 
 | Endpoint | Input | Result |
 | --- | --- | --- |
-| `GET /health` | No private input | Gateway and Gemma readiness |
-| `POST /chat` | Authenticated JSON text prompt | Gemma text or structured JSON response |
-| `POST /ground` | Authenticated JPEG/PNG multipart image | Gemma Markdown transcription |
+| `GET /health` | No private input | Gateway and Qwen3-VL readiness |
+| `POST /chat` | Authenticated JSON text prompt | Qwen3-VL text or structured JSON response |
+| `POST /ground` | Authenticated JPEG/PNG multipart image | Qwen3-VL Markdown transcription |
 
 `/chat` and `/ground` require `X-Local-Token`. `/health` does not process private data and does not
 require a token. Both services bind only to laptop loopback.
@@ -126,7 +126,7 @@ http://127.0.0.1:8000/health
 ```
 
 If it reports ready, the cable, USB authorization, ADB mapping, FastAPI process, Ollama process,
-and Gemma installation are working. Chrome runs no model and may be closed after this check.
+and Qwen3-VL installation are working. Chrome runs no model and may be closed after this check.
 
 ## Customer Q&A Flow
 
@@ -135,7 +135,7 @@ Spoken question
  -> Android offline speech recognition
  -> Android combines question with matched customer data
  -> POST /chat over phone localhost and USB
- -> FastAPI -> Ollama -> Gemma on GPU
+ -> FastAPI -> Ollama -> Qwen3-VL on GPU
  -> answer returns over USB
  -> Android displays answer
 ```
@@ -149,13 +149,14 @@ Spoken question
  -> glasses capture photo
  -> Android compresses it as JPEG
  -> POST /ground over USB
- -> FastAPI validates the image
- -> image plus strict transcription instructions go to Gemma Vision
+ -> FastAPI validates and mildly enhances the image
+ -> enhanced image plus strict transcription instructions go to Qwen3-VL
+ -> one retry runs when simple heuristics identify a weak first response
  -> Markdown transcription returns to Android
  -> Android stores it as documentSessionText
 ```
 
-Gemma is instructed to preserve headings, lists, fields, line order, and tables; avoid summaries
+Qwen3-VL is instructed to preserve headings, lists, fields, line order, and tables; avoid summaries
 and visual descriptions; mark unreadable fragments; and fail clearly when no text is readable.
 
 ### Stage 2: displayed analysis
@@ -163,7 +164,7 @@ and visual descriptions; mark unreadable fragments; and fail clearly when no tex
 ```text
 complete transcription
  -> POST /chat in structured-analysis mode
- -> Gemma returns document type, fields, summary, explanation, risks, and actions
+ -> Qwen3-VL returns document type, fields, summary, explanation, risks, and actions
  -> Android displays that analysis in the top result window
 ```
 
@@ -174,7 +175,7 @@ complete transcription
  + up to eight prior document Q&A turns
  + current spoken question
  -> POST /chat
- -> Gemma answer
+ -> Qwen3-VL answer
 ```
 
 The displayed summary and analysis JSON are never included in the Q&A prompt. The original image
@@ -207,7 +208,7 @@ verified on the current phone without internet. No speech server runs on the lap
 | `inference_server/.venv/` | Lightweight private Python environment |
 | `inference_server/.env` | Ignored gateway token and Ollama settings |
 | `local.properties` | Ignored Android SDK, GitHub token, local URL, and gateway token |
-| `%USERPROFILE%\.ollama\models` | Downloaded Gemma files |
+| `%USERPROFILE%\.ollama\models` | Downloaded Qwen3-VL files |
 
 Model files on disk use storage but no CPU or GPU after shutdown.
 
@@ -215,7 +216,7 @@ Model files on disk use storage but no CPU or GPU after shutdown.
 
 | Process | Purpose | Main resource |
 | --- | --- | --- |
-| `ollama.exe` | Serves Gemma text and vision | GPU VRAM and RAM |
+| `ollama.exe` | Serves Qwen3-VL text and vision | GPU VRAM and RAM |
 | `python.exe` | Runs Uvicorn and FastAPI | Small CPU and RAM use |
 | `adb.exe` | Maintains USB communication | Very small CPU and RAM use |
 | Android app | Controls glasses and displays results | Phone resources |
@@ -226,7 +227,7 @@ Android Studio is needed to build and install the app, but may be closed during 
 ## What Ctrl+C Stops
 
 Pressing `Ctrl+C` in the gateway terminal stops FastAPI/Uvicorn and removes the port-8000 reverse
-rule. It does not quit Ollama or unload Gemma. Follow [DAILY_START_STOP.md](DAILY_START_STOP.md)
+rule. It does not quit Ollama or unload Qwen3-VL. Follow [DAILY_START_STOP.md](DAILY_START_STOP.md)
 to release GPU memory and stop ADB completely.
 
 ## Privacy Boundary

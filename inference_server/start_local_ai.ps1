@@ -100,6 +100,7 @@ if (-not (Test-Path $EnvFile)) {
 Get-Content -LiteralPath $EnvFile | ForEach-Object {
   if ($_ -match '^([^#=]+)=(.*)$') { Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2] }
 }
+$Model = if ($env:OLLAMA_MODEL) { $env:OLLAMA_MODEL.Trim() } else { "qwen3-vl:8b" }
 $env:OLLAMA_NO_CLOUD = "1"
 $env:OLLAMA_KEEP_ALIVE = "-1"
 $env:OLLAMA_MAX_LOADED_MODELS = "1"
@@ -143,9 +144,9 @@ if ($UsbOnly) {
 }
 
 try {
-  Write-Host "Preloading Gemma into GPU memory..." -ForegroundColor Cyan
+  Write-Host "Preloading $Model into GPU memory..." -ForegroundColor Cyan
   $preloadBody = @{
-    model = "gemma3:4b-it-q4_K_M"
+    model = $Model
     keep_alive = -1
   } | ConvertTo-Json
   try {
@@ -156,7 +157,7 @@ try {
       -Body $preloadBody `
       -TimeoutSec 90 | Out-Null
   } catch {
-    throw "Gemma could not be preloaded. Run 'ollama list' and confirm gemma3:4b-it-q4_K_M is installed. $($_.Exception.Message)"
+    throw "$Model could not be preloaded. Run 'ollama list' and confirm it is installed. $($_.Exception.Message)"
   }
 
   Write-Host "Local AI gateway starting" -ForegroundColor Green

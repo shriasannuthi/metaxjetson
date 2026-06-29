@@ -15,11 +15,11 @@ Meta glasses -> Bluetooth -> Android app
                               |
                               | /chat and /ground
                               v
-                    Ollama -> Gemma 3 4B Q4 -> RTX 4060
+                    Ollama -> Qwen3-VL 8B -> RTX 4060
 ```
 
-- `/ground` sends the captured document image directly to Gemma Vision and returns a faithful
-  Markdown transcription.
+- `/ground` mildly enhances the captured document image and sends it to Qwen3-VL, retrying once
+  when the first transcription is weak.
 - `/chat` handles customer Q&A, the displayed document analysis, and document follow-up Q&A.
 - The document Q&A prompt contains the transcription, prior session turns, and current question.
   The displayed summary is not used as evidence.
@@ -33,7 +33,7 @@ Meta glasses -> Bluetooth -> Android app
 Read these in order:
 
 1. [Windows setup](docs/WINDOWS_LOCAL_SETUP.md): fresh-system project download, Android Studio and
-   SDK installation, GitHub Packages authentication, Ollama/Python/Gemma setup, Android
+   SDK installation, GitHub Packages authentication, Ollama/Python/Qwen3-VL setup, Android
    installation, and first offline test.
 2. [Daily start and stop](docs/DAILY_START_STOP.md): exact startup and complete shutdown after setup.
 3. [Architecture overview](docs/ARCHITECTURE_OVERVIEW.md): where each component runs and how data
@@ -56,7 +56,7 @@ Keep that PowerShell window and the USB cable connected. On the phone, open
 | Service | Address | Main hardware | Purpose |
 | --- | --- | --- | --- |
 | FastAPI gateway | `127.0.0.1:8000` | Lightweight CPU | Authenticates and routes local requests |
-| Ollama/Gemma | `127.0.0.1:11434` | RTX 4060 | Text, vision transcription, analysis, and Q&A |
+| Ollama/Qwen3-VL | `127.0.0.1:11434` | RTX 4060 | Text, vision transcription, analysis, and Q&A |
 | ADB reverse | USB port mapping | Phone and laptop | Maps phone localhost to laptop localhost |
 
 ## Repository Layout

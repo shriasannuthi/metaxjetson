@@ -6,6 +6,8 @@ $ServerDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent $ServerDir
 $VenvPython = Join-Path $ServerDir ".venv\Scripts\python.exe"
 $EnvFile = Join-Path $ServerDir ".env"
+$DefaultModel = "qwen3-vl:8b"
+$Model = if ($env:OLLAMA_MODEL) { $env:OLLAMA_MODEL.Trim() } else { $DefaultModel }
 
 function Find-Python311 {
   if (Get-Command py -ErrorAction SilentlyContinue) {
@@ -45,9 +47,9 @@ foreach ($entry in $OllamaVariables.GetEnumerator()) {
   Set-Item -Path "Env:$($entry.Key)" -Value $entry.Value
 }
 
-Write-Host "[3/5] Downloading Gemma 3 4B Q4 through Ollama..." -ForegroundColor Cyan
-& ollama pull gemma3:4b-it-q4_K_M
-if ($LASTEXITCODE -ne 0) { throw "Ollama could not download Gemma." }
+Write-Host "[3/5] Downloading $Model through Ollama..." -ForegroundColor Cyan
+& ollama pull $Model
+if ($LASTEXITCODE -ne 0) { throw "Ollama could not download $Model." }
 
 Write-Host "[4/5] Creating the lightweight Python 3.11 gateway environment..." -ForegroundColor Cyan
 if (-not (Test-Path $VenvPython)) {
@@ -66,19 +68,20 @@ if ($legacyPackages.Count -gt 0) {
 & $VenvPython -m pip install --upgrade pip
 & $VenvPython -m pip install -r (Join-Path $ServerDir "requirements.txt")
 
-Write-Host "[5/5] Creating the local token and warming Gemma..." -ForegroundColor Cyan
+Write-Host "[5/5] Creating the local token and warming the local model..." -ForegroundColor Cyan
 if (-not (Test-Path $EnvFile)) {
   $token = New-RandomToken
   @(
     "LOCAL_AI_TOKEN=$token"
     "OLLAMA_URL=http://127.0.0.1:11434"
-    "OLLAMA_MODEL=gemma3:4b-it-q4_K_M"
+    "OLLAMA_MODEL=$Model"
     "OLLAMA_CONTEXT_LENGTH=8192"
   ) | Set-Content -LiteralPath $EnvFile -Encoding ASCII
 } else {
   $cleanedEnvironment =
     Get-Content -LiteralPath $EnvFile |
-    Where-Object { $_ -notmatch '^OCR_' }
+    Where-Object { $_ -notmatch '^OCR_' -and $_ -notmatch '^OLLAMA_MODEL=' }
+  $cleanedEnvironment += "OLLAMA_MODEL=$Model"
   $cleanedEnvironment | Set-Content -LiteralPath $EnvFile -Encoding ASCII
 }
 Get-Content -LiteralPath $EnvFile | ForEach-Object {

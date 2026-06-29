@@ -1,7 +1,7 @@
 # Daily Start and Complete Shutdown
 
 Use this only after completing [WINDOWS_LOCAL_SETUP.md](WINDOWS_LOCAL_SETUP.md), installing the
-current Android app, and successfully testing customer Q&A and Gemma document transcription.
+current Android app, and successfully testing customer Q&A and Qwen3-VL document transcription.
 
 ## What Must Stay Connected
 
@@ -52,7 +52,7 @@ Wi-Fi, Ethernet, cellular data, Mobile Hotspot, and USB tethering remain off.
    .\inference_server\start_local_ai.ps1 -UsbOnly
    ```
 
-4. Wait while the script checks the phone, creates the USB mapping, preloads Gemma into GPU
+4. Wait while the script checks the phone, creates the USB mapping, preloads Qwen3-VL into GPU
    memory, and starts FastAPI.
 5. Confirm it prints:
 
@@ -80,7 +80,7 @@ The system is ready for customer Q&A and document scans.
 - Keep phone Bluetooth enabled.
 - Do not enable USB tethering or start an Android emulator.
 - Do not quit Ollama.
-- Gemma handles text and image inference on the RTX 4060.
+- Qwen3-VL handles text and image inference on the RTX 4060.
 - The Python gateway uses only light CPU for requests and image validation.
 - Fill the glasses view with the document and avoid motion, low light, and glare.
 
@@ -102,12 +102,12 @@ The system is ready for customer Q&A and document scans.
 
 The Python gateway is now stopped. No model runs inside Python.
 
-### 3. Unload Gemma from the GPU
+### 3. Unload Qwen3-VL from the GPU
 
 Run:
 
 ```powershell
-ollama stop gemma3:4b-it-q4_K_M
+ollama stop qwen3-vl:8b
 ollama ps
 ```
 
@@ -180,10 +180,10 @@ Use this only when normal shutdown fails.
    & "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" kill-server
    ```
 
-4. Unload Gemma:
+4. Unload Qwen3-VL:
 
    ```powershell
-   ollama stop gemma3:4b-it-q4_K_M
+   ollama stop qwen3-vl:8b
    ```
 
 5. Quit Ollama from the system tray.

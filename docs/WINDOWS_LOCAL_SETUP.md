@@ -4,7 +4,7 @@ Follow this guide once on a fresh Windows 11 computer. It covers every step from
 required software through the first complete offline test.
 
 This guide is written for an HP Omen with Ryzen 7, 32 GB RAM, and an RTX 4060 with 8 GB VRAM.
-Internet is required temporarily for installers, source code, Gradle dependencies, and the Gemma
+Internet is required temporarily for installers, source code, Gradle dependencies, and the Qwen3-VL
 download. After setup, normal operation requires no internet or local network.
 
 ```text
@@ -21,7 +21,7 @@ Meta glasses -> Bluetooth -> Android phone
                     laptop 127.0.0.1:11434 Ollama
                               |
                               v
-                    Gemma 3 4B Q4 on RTX 4060
+                    Qwen3-VL 8B on RTX 4060
 ```
 
 USB debugging is required. USB tethering must remain off. Bluetooth stays enabled on the phone
@@ -33,7 +33,7 @@ only for the glasses.
 | --- | --- |
 | Glasses pairing, stream, and photo capture | Meta glasses and Android phone |
 | Offline speech recognition and face matching | Android phone |
-| Image transcription, document analysis, and all Q&A | Gemma on laptop RTX 4060 |
+| Image transcription, document analysis, and all Q&A | Qwen3-VL on laptop RTX 4060 |
 | Authentication, image validation, and request routing | FastAPI on laptop |
 | Phone-to-laptop communication | ADB reverse over USB |
 
@@ -99,7 +99,7 @@ Perform these steps manually while online.
 8. If the command is not found, close and reopen PowerShell.
 9. Do not sign in to Ollama and do not select a cloud model.
 
-The project setup script later downloads `gemma3:4b-it-q4_K_M` and enables local-only operation.
+The project setup script later downloads `qwen3-vl:8b` and enables local-only operation.
 
 ## Part 4: Install Python 3.11.9
 
@@ -120,7 +120,7 @@ Perform these steps manually while online. Do not use Python 3.13 for this proje
 
 9. Confirm the result starts with `Python 3.11`.
 
-Python hosts only the lightweight FastAPI gateway. Gemma inference runs through Ollama on the GPU.
+Python hosts only the lightweight FastAPI gateway. Qwen3-VL inference runs through Ollama on the GPU.
 
 ## Part 5: Install Android Studio and Android SDK
 
@@ -193,11 +193,11 @@ Keep internet access enabled.
 
 3. Wait while the script:
    - Configures Ollama for local-only, single-model operation.
-   - Downloads `gemma3:4b-it-q4_K_M`.
+   - Downloads `qwen3-vl:8b`.
    - Creates `inference_server\.venv` with Python 3.11.
    - Installs FastAPI and image-validation dependencies.
    - Creates `inference_server\.env` with a random private token.
-   - Warms Gemma and verifies readiness.
+   - Warms Qwen3-VL and verifies readiness.
 4. Confirm the final message says `Setup complete`.
 5. Right-click the Ollama system-tray icon and select **Quit**.
 6. Open Ollama again from Start so it receives the saved local-only settings.
@@ -207,9 +207,9 @@ Keep internet access enabled.
    ollama list
    ```
 
-8. Confirm `gemma3:4b-it-q4_K_M` appears.
+8. Confirm `qwen3-vl:8b` appears.
 
-It is normal for `ollama ps` to show only column headings here. The startup script loads Gemma into
+It is normal for `ollama ps` to show only column headings here. The startup script loads Qwen3-VL into
 GPU memory later.
 
 ## Part 8: Prepare the Android Phone
@@ -285,7 +285,7 @@ The USB cable is now the only phone-to-laptop application data path. It does not
    .\inference_server\start_local_ai.ps1 -UsbOnly
    ```
 
-4. Wait while the script authorizes the phone, creates the USB mapping, preloads Gemma, and starts
+4. Wait while the script authorizes the phone, creates the USB mapping, preloads Qwen3-VL, and starts
    FastAPI.
 5. Confirm the terminal prints:
 
@@ -313,7 +313,7 @@ The USB cable is now the only phone-to-laptop application data path. It does not
    ```
 
 7. Confirm the ADB output includes `tcp:8000 tcp:8000`.
-8. Confirm Gemma's **PROCESSOR** column reports `100% GPU`.
+8. Confirm Qwen3-VL's **PROCESSOR** column reports `100% GPU`.
 9. Try opening a public website on the phone and laptop. Both must fail.
 
 ## Part 13: Complete Offline Test
@@ -326,7 +326,7 @@ The USB cable is now the only phone-to-laptop application data path. It does not
 6. Hold a clear printed page so its text fills most of the glasses view.
 7. Use bright, even lighting and keep your head still.
 8. Say **Hey Meta scan**.
-9. Confirm Gemma returns a faithful text transcription rather than a general image description.
+9. Confirm Qwen3-VL returns a faithful text transcription rather than a general image description.
 10. Confirm the summary and explanation appear in the top result window.
 11. Ask a follow-up question whose answer is printed on the page.
 12. Confirm the answer is supported by the transcription.
@@ -374,7 +374,7 @@ port 8000. Reconnect and restart after any cable interruption.
 
 ### Health says chat or ground is unavailable
 
-Open Ollama, run `ollama list`, and confirm `gemma3:4b-it-q4_K_M` exists. Temporarily reconnect to
+Open Ollama, run `ollama list`, and confirm `qwen3-vl:8b` exists. Temporarily reconnect to
 the internet and rerun Part 7 if it is missing.
 
 ### The scan says no readable text
@@ -387,7 +387,7 @@ camera, and retry. The model fails clearly rather than inventing missing text.
 Stop the gateway with `Ctrl+C`, confirm the repository is current, and restart it. New scans use a
 strict transcription-only prompt and do not receive prior document images.
 
-### Gemma does not report 100% GPU
+### Qwen3-VL does not report 100% GPU
 
 Connect the charger, select **Best performance**, close any Android emulator, quit and reopen
 Ollama, restart the gateway, and check `ollama ps` again.
