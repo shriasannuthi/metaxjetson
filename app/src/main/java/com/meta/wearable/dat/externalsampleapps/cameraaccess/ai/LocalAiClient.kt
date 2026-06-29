@@ -33,6 +33,12 @@ class LocalAiClient(
     private val gson: Gson = Gson(),
 ) {
   private val serverUrl: HttpUrl? = baseUrl.trim().trimEnd('/').toHttpUrlOrNull()
+  private val groundingHttpClient =
+      httpClient
+          .newBuilder()
+          .readTimeout(GROUNDING_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+          .callTimeout(GROUNDING_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+          .build()
 
   fun isConfigured(): Boolean =
       token.isNotBlank() && serverUrl?.let { it.scheme == "http" && it.host.isPrivateLanHost() } == true
@@ -79,7 +85,8 @@ class LocalAiClient(
             .url(endpoint("ground"))
             .addHeader(TOKEN_HEADER, token)
             .post(requestBody)
-            .build()
+            .build(),
+        groundingHttpClient,
     )
   }
 
@@ -87,16 +94,19 @@ class LocalAiClient(
     val base = serverUrl
     if (!isConfigured() || base == null) {
       throw LocalAiException(
-          "Local AI server is not configured with a private LAN URL and token"
+          "Local AI server is not configured with a local URL and token"
       )
     }
     return base.newBuilder().addPathSegment(path).build()
   }
 
-  private suspend fun executeTextRequest(request: Request): String =
+  private suspend fun executeTextRequest(
+      request: Request,
+      requestClient: OkHttpClient = httpClient,
+  ): String =
       withContext(Dispatchers.IO) {
         try {
-          httpClient.newCall(request).execute().use { response ->
+          requestClient.newCall(request).execute().use { response ->
             val responseBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
               throw LocalAiException(
@@ -125,7 +135,7 @@ class LocalAiClient(
           throw e
         } catch (e: IOException) {
           throw LocalAiException(
-              "Cannot reach the local AI server. Check that the laptop gateway is running and the phone is on the same Wi-Fi network.",
+              "Cannot reach the local AI server. Keep the USB cable connected and run start_local_ai.ps1 -UsbOnly on the laptop.",
               cause = e,
           )
         }
@@ -172,6 +182,8 @@ class LocalAiClient(
     const val DEFAULT_MAX_TOKENS = 320
     const val JPEG_QUALITY = 92
     const val MAX_ERROR_CHARS = 500
+    const val GROUNDING_READ_TIMEOUT_SECONDS = 120L
+    const val GROUNDING_CALL_TIMEOUT_SECONDS = 130L
     val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     val JPEG_MEDIA_TYPE = "image/jpeg".toMediaType()
     val DEFAULT_HTTP_CLIENT =

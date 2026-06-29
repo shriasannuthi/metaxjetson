@@ -7,7 +7,12 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from inference_server.runtime import LocalAiRuntime, LocalAiRuntimeError, Settings
+from inference_server.runtime import (
+    LocalAiRuntime,
+    LocalAiRuntimeError,
+    NoReadableDocumentTextError,
+    Settings,
+)
 
 
 class ChatRequest(BaseModel):
@@ -62,6 +67,12 @@ def create_app(
     async def runtime_error_handler(_, exc: LocalAiRuntimeError) -> JSONResponse:
         return JSONResponse(status_code=503, content={"detail": str(exc)})
 
+    @app.exception_handler(NoReadableDocumentTextError)
+    async def no_readable_text_handler(
+        _, exc: NoReadableDocumentTextError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
     @app.get("/health")
     async def health() -> dict[str, Any]:
         return await active_runtime.health()
@@ -90,7 +101,11 @@ def create_app(
             text, latency_ms = await active_runtime.ground(image_bytes)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return TextResponse(text=text, latencyMs=latency_ms)
+        return TextResponse(
+            text=text,
+            model=getattr(getattr(active_runtime, "settings", None), "model", None),
+            latencyMs=latency_ms,
+        )
 
     return app
 

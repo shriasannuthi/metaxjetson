@@ -105,9 +105,6 @@ $env:OLLAMA_KEEP_ALIVE = "-1"
 $env:OLLAMA_MAX_LOADED_MODELS = "1"
 $env:OLLAMA_NUM_PARALLEL = "1"
 $env:OLLAMA_CONTEXT_LENGTH = "8192"
-$env:OMP_NUM_THREADS = "8"
-$env:MKL_NUM_THREADS = "8"
-$env:FLAGS_use_mkldnn = "0"
 
 try {
   Invoke-RestMethod -Uri "http://127.0.0.1:11434/api/tags" -TimeoutSec 3 | Out-Null
