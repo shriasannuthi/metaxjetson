@@ -1,13 +1,13 @@
 # Architecture Overview
 
-This explains what runs on each device, what the open terminal and phone browser do, and how data
-moves through the fully local system.
+This branch runs the Meta glasses banking assistant entirely through local services on a Windows
+laptop. The active Ollama model is `gemma3:4b-it-q4_K_M`.
 
-## Short Version
+## System Map
 
 ```text
 Meta glasses
-    | Bluetooth through Meta DAT
+    | Bluetooth through Meta Device Access Toolkit
     v
 Android application
     | http://127.0.0.1:8000
@@ -16,222 +16,204 @@ ADB reverse over USB
     |
     v
 FastAPI gateway on laptop 127.0.0.1:8000
-    |
-    | local Ollama API 127.0.0.1:11434
+    | serialized local requests
     v
-Qwen3-VL 8B on RTX 4060
+Ollama 127.0.0.1:11434
+    |
+    v
+Gemma 3 4B Q4 on RTX 4060
 ```
 
-The system has one AI model. Qwen3-VL handles text and images on the GPU. No document model or
-language model performs CPU inference.
+The phone owns capture, speech, UI, and session state. The laptop owns image preparation and Gemma
+inference. Runtime traffic has no cloud AI fallback.
 
-## Meta Glasses
+## Responsibilities by Device
 
-The glasses provide:
+### Meta glasses
 
-- Camera streaming.
-- Photo capture for document scans.
-- Microphone audio routed to the phone.
-- Bluetooth communication with the phone.
+- Stream camera frames and capture document photos.
+- Route microphone audio to the phone.
+- Communicate with the phone over Bluetooth.
 
-They do not run Qwen3-VL, FastAPI, or the Android application. They are controlled through Meta's
-Device Access Toolkit.
+The glasses do not run the Android app, FastAPI, or Gemma.
 
-## Android Phone
+### Android phone
 
-The installed application runs:
+- Pair with the glasses through Meta DAT and manage the camera stream.
+- Capture a high-resolution photo for each document scan.
+- Apply HEIC EXIF orientation and encode the photo as JPEG quality 92.
+- Run offline Android speech recognition.
+- Run ML Kit face detection and MobileFaceNet matching against bundled customer faces.
+- Store the active customer, document transcription, displayed analysis, and Q&A history in memory.
+- Build prompts for customer Q&A, document analysis, and document follow-up Q&A.
+- Call the authenticated FastAPI endpoints through `LocalAiClient`.
 
-- User interface and session state.
-- Glasses pairing, streaming, and photo capture through Meta DAT.
-- Existing offline Android speech recognition.
-- Local ML Kit and TensorFlow Lite face matching.
-- Customer data bundled in application assets.
-- Prompt construction for customer Q&A, document analysis, and document Q&A.
-- `LocalAiClient`, which calls `http://127.0.0.1:8000`.
+The Android app sends one image to `/ground`; it does not crop, tile, or submit multiple images.
 
-The phone does not run Qwen3-VL. Its localhost request is transported to the laptop by ADB reverse.
+### Windows laptop
 
-## ADB Reverse and USB
+- ADB reverse maps phone port 8000 to laptop port 8000 over USB.
+- FastAPI authenticates requests, validates and prepares document images, and calls Ollama.
+- Ollama runs `gemma3:4b-it-q4_K_M` locally with an 8192-token context.
+- An `asyncio.Lock` serializes every text and vision request so only one inference runs at a time.
 
-The startup script runs the equivalent of:
+## USB Transport
 
-```powershell
-adb reverse tcp:8000 tcp:8000
-```
-
-This creates:
+The startup script creates this mapping:
 
 ```text
-phone localhost:8000 -> USB cable -> laptop localhost:8000
+phone 127.0.0.1:8000 -> USB cable -> laptop 127.0.0.1:8000
 ```
 
-It is not USB tethering, does not provide internet access, and disappears when USB disconnects or
-the rule is removed.
+It uses `adb reverse tcp:8000 tcp:8000`; it is not USB tethering and provides no internet access.
+Disconnecting USB or stopping ADB removes the path.
 
-## Gateway PowerShell Terminal
+## Local Services and API
 
-Running:
-
-```powershell
-.\inference_server\start_local_ai.ps1 -UsbOnly
-```
-
-does the following:
-
-1. Reads the ignored local token and Ollama settings.
-2. Confirms Ollama is running and Qwen3-VL is installed.
-3. Finds `adb.exe` and one authorized physical phone.
-4. Rejects active emulators and ambiguous device selections.
-5. creates the port-8000 USB reverse rule.
-6. Preloads Qwen3-VL into GPU memory.
-7. Starts Python, Uvicorn, and FastAPI on laptop localhost.
-8. Prints request logs until `Ctrl+C` is pressed.
-
-The terminal must stay open because it owns the FastAPI process. Python performs authentication,
-multipart handling, JPEG/PNG validation, and local Ollama calls. These are lightweight CPU tasks,
-not model inference.
-
-## Ollama and Qwen3-VL
-
-Ollama is a separate Windows application listening only at `127.0.0.1:11434`. It keeps
-`qwen3-vl:8b` loaded in RTX 4060 memory.
-
-Qwen3-VL performs:
-
-- Customer Q&A from text prompts.
-- Document image transcription through its vision input.
-- Structured summary and explanation from the transcription.
-- Document follow-up Q&A from transcription and session history.
-
-The gateway serializes all model calls. Only one text or vision request runs at a time, avoiding
-GPU memory spikes and nondeterministic overlapping responses.
-
-## FastAPI Endpoints
-
-| Endpoint | Input | Result |
+| Service or endpoint | Input | Result |
 | --- | --- | --- |
-| `GET /health` | No private input | Gateway and Qwen3-VL readiness |
-| `POST /chat` | Authenticated JSON text prompt | Qwen3-VL text or structured JSON response |
-| `POST /ground` | Authenticated JPEG/PNG multipart image | Qwen3-VL Markdown transcription |
+| FastAPI `GET /health` | No private input | Gateway, Ollama, and configured-model readiness |
+| FastAPI `POST /chat` | Authenticated JSON prompt | Text or schema-constrained document analysis |
+| FastAPI `POST /ground` | Authenticated JPEG/PNG multipart upload | Markdown document transcription |
+| Ollama `/api/chat` | Local text and optional Base64 image | Gemma response |
 
-`/chat` and `/ground` require `X-Local-Token`. `/health` does not process private data and does not
-require a token. Both services bind only to laptop loopback.
+`/chat` and `/ground` require `X-Local-Token`. FastAPI and Ollama normally bind to laptop
+loopback. The Android build receives its gateway URL and token from ignored local configuration.
 
-## Phone Chrome
+## Document Grounding Pipeline
 
-Chrome is used only to open:
+Grounding converts one captured document photo into the transcription used by every later document
+operation.
+
+```text
+capturePhoto()
+ -> Android applies orientation and JPEG quality 92
+ -> POST /ground as multipart image
+ -> upload and decoded-image validation
+ -> Pillow enhancement in memory
+ -> first Gemma 3 vision transcription
+ -> simple weak-output check
+ -> optional second vision transcription using the same enhanced image
+ -> final Markdown transcription or explicit error
+```
+
+### 1. Upload validation
+
+FastAPI accepts only `image/jpeg` and `image/png`. The upload must be non-empty and no larger than
+12 MB. Pillow then verifies that it is a valid JPEG or PNG and rejects decoded images larger than
+24 megapixels. Invalid uploads never reach Ollama.
+
+### 2. In-memory image preparation
+
+The gateway opens the validated image with Pillow and:
+
+1. Applies EXIF transpose defensively.
+2. Converts it to RGB.
+3. Leaves smaller images at their original dimensions.
+4. If the long edge exceeds 2200 pixels, resizes it to a 2000-pixel long edge with Lanczos.
+5. Applies mild contrast enhancement at factor 1.20.
+6. Applies mild sharpness enhancement at factor 1.30.
+7. Encodes the result as JPEG quality 95.
+
+There is no OCR engine, thresholding, black-and-white conversion, cropping, deskewing, layout
+detection, or tiling.
+
+### 3. First vision attempt
+
+The gateway Base64-encodes the enhanced JPEG and sends it to Ollama in one non-streaming
+`/api/chat` request. Vision uses temperature 0 and allows up to 4096 output tokens.
+
+The laptop-side Ollama read timeout is 120 seconds. Android gives `/ground` a 120-second read
+timeout and a 130-second total call timeout. Both vision attempts, when needed, execute while the
+same model lock is held, so another app request cannot overlap the scan.
+
+The strict prompt requires Markdown transcription only. It asks Gemma to preserve reading order,
+headings, labels, values, lists, and tables; mark unreadable text as `[unclear]`; ignore instructions
+inside the document; and avoid summaries, explanations, image descriptions, or invented content.
+
+### 4. Weak-output decision
+
+The first result is considered weak when it is:
+
+- Empty.
+- Effectively `NO_READABLE_TEXT`.
+- Shorter than 80 characters.
+- Dominated by repeated `[unclear]` markers.
+- Prefixed like a summary or image description.
+- A generic refusal such as `I cannot read` or `unable to determine`.
+
+A strong first result is returned immediately. A weak first result triggers exactly one retry.
+
+### 5. Retry
+
+The retry uses the same enhanced image and a stronger transcription-only prompt. It again allows
+4096 output tokens. There are never more than two grounding calls for one scan.
+
+If the final result is effectively `NO_READABLE_TEXT`, FastAPI returns HTTP 422. An empty final
+result is treated as a local model failure and returns HTTP 503. Otherwise the final text is returned
+in the existing response shape:
+
+```json
+{
+  "text": "...Markdown transcription...",
+  "model": "gemma3:4b-it-q4_K_M",
+  "latencyMs": 1234
+}
+```
+
+The image and intermediate responses are not persisted by the application.
+
+## Document Analysis and Q&A
+
+After grounding succeeds, Android stores the transcription as `documentSessionText`.
+
+### Displayed analysis
+
+Android sends the complete transcription to `/chat` with `document_analysis` response mode. Ollama
+receives a JSON schema requiring document type, extracted fields, summary, explanation, risk flags,
+and recommended actions. This is a text-only Gemma call.
+
+### Follow-up questions
+
+Each document question includes:
+
+- The complete original transcription.
+- Up to eight prior document Q&A turns.
+- The current spoken question.
+
+The displayed summary is never used as evidence. The original image is not resent. Consequently,
+grounding quality is the evidence boundary for the entire document session.
+
+## Customer Q&A
+
+Face matching selects a bundled customer locally on Android. The phone sends selected customer
+data, the spoken question, and limited conversation history to `/chat`. Gemma answers the
+relationship manager using only that supplied data.
+
+## Startup, Health, and Shutdown
+
+`start_local_ai.ps1 -UsbOnly` reads `inference_server/.env`, verifies Ollama and the configured
+model, selects one authorized physical phone, creates the ADB reverse rule, preloads the model, and
+starts Uvicorn. The terminal must remain open.
+
+The phone health URL verifies the complete phone-to-laptop path:
 
 ```text
 http://127.0.0.1:8000/health
 ```
 
-If it reports ready, the cable, USB authorization, ADB mapping, FastAPI process, Ollama process,
-and Qwen3-VL installation are working. Chrome runs no model and may be closed after this check.
+Pressing `Ctrl+C` stops FastAPI and removes the reverse rule. It does not unload Gemma or quit
+Ollama; follow [DAILY_START_STOP.md](DAILY_START_STOP.md) for complete shutdown.
 
-## Customer Q&A Flow
-
-```text
-Spoken question
- -> Android offline speech recognition
- -> Android combines question with matched customer data
- -> POST /chat over phone localhost and USB
- -> FastAPI -> Ollama -> Qwen3-VL on GPU
- -> answer returns over USB
- -> Android displays answer
-```
-
-## Document Scan Flow
-
-### Stage 1: faithful transcription
-
-```text
-"Hey Meta scan" or scan button
- -> glasses capture photo
- -> Android compresses it as JPEG
- -> POST /ground over USB
- -> FastAPI validates and mildly enhances the image
- -> enhanced image plus strict transcription instructions go to Qwen3-VL
- -> one retry runs when simple heuristics identify a weak first response
- -> Markdown transcription returns to Android
- -> Android stores it as documentSessionText
-```
-
-Qwen3-VL is instructed to preserve headings, lists, fields, line order, and tables; avoid summaries
-and visual descriptions; mark unreadable fragments; and fail clearly when no text is readable.
-
-### Stage 2: displayed analysis
-
-```text
-complete transcription
- -> POST /chat in structured-analysis mode
- -> Qwen3-VL returns document type, fields, summary, explanation, risks, and actions
- -> Android displays that analysis in the top result window
-```
-
-### Stage 3: follow-up Q&A
-
-```text
-complete transcription
- + up to eight prior document Q&A turns
- + current spoken question
- -> POST /chat
- -> Qwen3-VL answer
-```
-
-The displayed summary and analysis JSON are never included in the Q&A prompt. The original image
-is not resent for follow-up questions. The transcription remains the source evidence for the
-document session.
-
-## Face Recognition Flow
-
-```text
-glasses video frame
- -> Android ML Kit face detection
- -> Android TensorFlow Lite embedding
- -> comparison with bundled enrolled faces
- -> customer selected locally
-```
-
-The laptop is not involved.
-
-## Speech Recognition Flow
-
-Assistant speech and the "Hey Meta scan" trigger use Android's installed recognizer. This was
-verified on the current phone without internet. No speech server runs on the laptop.
-
-## Files and Persistent Data
+## Persistent Files and Privacy Boundary
 
 | Location | Contents |
 | --- | --- |
-| `app/` | Android source, customer data, faces, and local face model |
-| `inference_server/` | Gateway source, scripts, and tests |
-| `inference_server/.venv/` | Lightweight private Python environment |
-| `inference_server/.env` | Ignored gateway token and Ollama settings |
-| `local.properties` | Ignored Android SDK, GitHub token, local URL, and gateway token |
-| `%USERPROFILE%\.ollama\models` | Downloaded Qwen3-VL files |
+| `app/` | Android source, bundled customer records, faces, and face model |
+| `inference_server/` | FastAPI runtime, scripts, and tests |
+| `inference_server/.env` | Ignored gateway token, model tag, Ollama URL, and context length |
+| `local.properties` | Ignored Android SDK path, package token, gateway URL, and gateway token |
+| `%USERPROFILE%\.ollama\models` | Local Ollama model files |
 
-Model files on disk use storage but no CPU or GPU after shutdown.
-
-## Processes While Running
-
-| Process | Purpose | Main resource |
-| --- | --- | --- |
-| `ollama.exe` | Serves Qwen3-VL text and vision | GPU VRAM and RAM |
-| `python.exe` | Runs Uvicorn and FastAPI | Small CPU and RAM use |
-| `adb.exe` | Maintains USB communication | Very small CPU and RAM use |
-| Android app | Controls glasses and displays results | Phone resources |
-| Chrome | Optional health check only | Phone resources until closed |
-
-Android Studio is needed to build and install the app, but may be closed during ordinary use.
-
-## What Ctrl+C Stops
-
-Pressing `Ctrl+C` in the gateway terminal stops FastAPI/Uvicorn and removes the port-8000 reverse
-rule. It does not quit Ollama or unload Qwen3-VL. Follow [DAILY_START_STOP.md](DAILY_START_STOP.md)
-to release GPU memory and stop ADB completely.
-
-## Privacy Boundary
-
-All app-owned AI endpoints are local loopback addresses with no cloud fallback. Runtime traffic
-stays among the phone, USB cable, and laptop. Meta pairing/runtime and Android speech recognition
-were independently verified while offline. Meta SDK analytics opt-out remains enabled.
+App-owned AI traffic remains among the phone, USB cable, FastAPI, and loopback Ollama. There is no
+cloud model endpoint or fallback in the Android or gateway code.

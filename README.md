@@ -15,25 +15,25 @@ Meta glasses -> Bluetooth -> Android app
                               |
                               | /chat and /ground
                               v
-                    Ollama -> Qwen3-VL 8B -> RTX 4060
+              Ollama -> Gemma 3 4B Q4 -> RTX 4060
 ```
 
-- `/ground` mildly enhances the captured document image and sends it to Qwen3-VL, retrying once
-  when the first transcription is weak.
+- `/ground` validates and mildly enhances the captured image, sends it to Gemma 3 Vision, and
+  retries once when simple heuristics identify a weak transcription.
 - `/chat` handles customer Q&A, the displayed document analysis, and document follow-up Q&A.
 - The document Q&A prompt contains the transcription, prior session turns, and current question.
   The displayed summary is not used as evidence.
 - Android speech recognition and face matching remain on the phone.
 - The gateway and Ollama are loopback-only, authenticated, and have no cloud fallback.
-- No document or language model performs inference on the CPU. Python still uses a small amount of
-  CPU for the gateway, image validation, and USB request handling.
+- Gemma 3 fits on the RTX 4060 for GPU inference. Python uses a small amount of CPU for the gateway,
+  image validation, enhancement, and USB request handling.
 
 ## Documentation
 
 Read these in order:
 
 1. [Windows setup](docs/WINDOWS_LOCAL_SETUP.md): fresh-system project download, Android Studio and
-   SDK installation, GitHub Packages authentication, Ollama/Python/Qwen3-VL setup, Android
+   SDK installation, GitHub Packages authentication, Ollama/Python/Gemma 3 setup, Android
    installation, and first offline test.
 2. [Daily start and stop](docs/DAILY_START_STOP.md): exact startup and complete shutdown after setup.
 3. [Architecture overview](docs/ARCHITECTURE_OVERVIEW.md): where each component runs and how data
@@ -56,7 +56,7 @@ Keep that PowerShell window and the USB cable connected. On the phone, open
 | Service | Address | Main hardware | Purpose |
 | --- | --- | --- | --- |
 | FastAPI gateway | `127.0.0.1:8000` | Lightweight CPU | Authenticates and routes local requests |
-| Ollama/Qwen3-VL | `127.0.0.1:11434` | RTX 4060 | Text, vision transcription, analysis, and Q&A |
+| Ollama/Gemma 3 | `127.0.0.1:11434` | RTX 4060 | Text, vision transcription, analysis, and Q&A |
 | ADB reverse | USB port mapping | Phone and laptop | Maps phone localhost to laptop localhost |
 
 ## Repository Layout

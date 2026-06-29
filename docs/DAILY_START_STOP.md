@@ -1,7 +1,7 @@
 # Daily Start and Complete Shutdown
 
 Use this only after completing [WINDOWS_LOCAL_SETUP.md](WINDOWS_LOCAL_SETUP.md), installing the
-current Android app, and successfully testing customer Q&A and Qwen3-VL document transcription.
+current Android app, and successfully testing customer Q&A and Gemma 3 document transcription.
 
 ## What Must Stay Connected
 
@@ -52,7 +52,7 @@ Wi-Fi, Ethernet, cellular data, Mobile Hotspot, and USB tethering remain off.
    .\inference_server\start_local_ai.ps1 -UsbOnly
    ```
 
-4. Wait while the script checks the phone, creates the USB mapping, preloads Qwen3-VL into GPU
+4. Wait while the script checks the phone, creates the USB mapping, preloads Gemma 3 into GPU
    memory, and starts FastAPI.
 5. Confirm it prints:
 
@@ -68,7 +68,8 @@ Wi-Fi, Ethernet, cellular data, Mobile Hotspot, and USB tethering remain off.
 
 1. Open Chrome on the phone.
 2. Open `http://127.0.0.1:8000/health`.
-3. Confirm `status`, `gateway`, `chat`, and `ground` say `ready`.
+3. Confirm `status`, `gateway`, `chat`, and `ground` say `ready`, and `model` says
+   `gemma3:4b-it-q4_K_M`.
 4. Close Chrome.
 5. Open the Meta glasses app and start streaming.
 
@@ -80,7 +81,7 @@ The system is ready for customer Q&A and document scans.
 - Keep phone Bluetooth enabled.
 - Do not enable USB tethering or start an Android emulator.
 - Do not quit Ollama.
-- Qwen3-VL handles text and image inference on the RTX 4060.
+- Gemma 3 handles text and image inference on the RTX 4060.
 - The Python gateway uses only light CPU for requests and image validation.
 - Fill the glasses view with the document and avoid motion, low light, and glare.
 
@@ -102,12 +103,12 @@ The system is ready for customer Q&A and document scans.
 
 The Python gateway is now stopped. No model runs inside Python.
 
-### 3. Unload Qwen3-VL from the GPU
+### 3. Unload Gemma 3 from the GPU
 
 Run:
 
 ```powershell
-ollama stop qwen3-vl:8b
+ollama stop gemma3:4b-it-q4_K_M
 ollama ps
 ```
 
@@ -180,10 +181,10 @@ Use this only when normal shutdown fails.
    & "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" kill-server
    ```
 
-4. Unload Qwen3-VL:
+4. Unload Gemma 3:
 
    ```powershell
-   ollama stop qwen3-vl:8b
+   ollama stop gemma3:4b-it-q4_K_M
    ```
 
 5. Quit Ollama from the system tray.
