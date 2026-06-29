@@ -48,6 +48,14 @@ val xaiDocumentGroundingModelId =
     localProperties.getProperty("XAI_DOCUMENT_GROUNDING_MODEL_ID", "grok-4.20-0309-reasoning")
         .replace("\\", "\\\\")
         .replace("\"", "\\\"")
+val daVoiceLicenseKey =
+    localProperties.getProperty("DAVOICE_LICENSE_KEY", "").replace("\\", "\\\\").replace("\"", "\\\"")
+val daVoiceWakeModel =
+    localProperties.getProperty("DAVOICE_WAKE_MODEL", "hey_meta.dm")
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+val daVoiceWakeThreshold =
+    localProperties.getProperty("DAVOICE_WAKE_THRESHOLD", "0.99").toFloatOrNull() ?: 0.99f
 
 android {
   namespace = "com.meta.wearable.dat.externalsampleapps.cameraaccess"
@@ -104,6 +112,21 @@ android {
         "XAI_DOCUMENT_GROUNDING_MODEL_ID",
         "\"$xaiDocumentGroundingModelId\"",
     )
+    buildConfigField(
+        "String",
+        "DAVOICE_LICENSE_KEY",
+        "\"$daVoiceLicenseKey\"",
+    )
+    buildConfigField(
+        "String",
+        "DAVOICE_WAKE_MODEL",
+        "\"$daVoiceWakeModel\"",
+    )
+    buildConfigField(
+        "float",
+        "DAVOICE_WAKE_THRESHOLD",
+        "${daVoiceWakeThreshold}f",
+    )
 
     // Meta Wearables Device Access Toolkit Setup
     // Without Developer Mode, these values need to be set with credentials from the app registered
@@ -153,6 +176,10 @@ dependencies {
   implementation("com.squareup.okhttp3:okhttp:4.12.0")
   implementation("com.google.code.gson:gson:2.11.0")
   implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.0")
+  val daVoiceAar = file("libs/keyworddetection-1.0.0.aar")
+  if (daVoiceAar.exists()) {
+    implementation(files(daVoiceAar))
+  }
   androidTestImplementation(libs.androidx.ui.test.junit4)
   androidTestImplementation(libs.androidx.test.uiautomator)
   androidTestImplementation(libs.androidx.test.rules)

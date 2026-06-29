@@ -696,7 +696,7 @@ private fun StreamHud(
               if (hasVoice) {
                 StatusRow(
                     icon = Icons.Default.Mic,
-                    title = voiceStatus ?: "Hey Meta",
+                    title = voiceStatus ?: "DaVoice wake",
                     value = transcript?.takeIf { it.isNotBlank() } ?: "Listening",
                     tint = if (isAnalyzing) AppColor.Yellow else AppColor.Green,
                 )

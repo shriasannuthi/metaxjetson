@@ -51,6 +51,7 @@ import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.GeminiService
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.AssistantSpeechListener
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.ConversationRole
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.ConversationTurn
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.voice.VoiceWakeSession
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.wearables.WearablesViewModel
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -78,7 +79,8 @@ class StreamViewModel(
     private val SESSION_TERMINAL_STATES = setOf(StreamState.CLOSED)
     private const val FACE_RECOGNITION_INTERVAL_MS = 1_500L
     private const val MATCHED_FACE_RECHECK_INTERVAL_MS = 6_000L
-    private const val VOICE_SCAN_COMMAND = "hey meta scan"
+    private const val COMMAND_SCAN = "scan"
+    private const val COMMAND_SCAN_DOCUMENT = "scan document"
     private const val ENABLE_RAW_AUDIO_RECORDING = false
     private const val MAX_PARTIAL_RESPONSE_CHARS = 900
     private const val DOCUMENT_QA_MIC_HANDOFF_DELAY_MS = 400L
@@ -114,7 +116,7 @@ class StreamViewModel(
   private var sessionStateJob: Job? = null
   private var faceRecognitionJob: Job? = null
   private var lastFaceRecognitionAtMs = 0L
-  private var voiceCommandListener: VoiceCommandListener? = null
+  private var voiceWakeSession: VoiceWakeSession? = null
   private var documentQuestionSpeechListener: AssistantSpeechListener? = null
   private var documentQuestionStartJob: Job? = null
   private var documentSessionText: String? = null
@@ -409,71 +411,68 @@ class StreamViewModel(
   }
 
   private fun startVoiceCommandListener() {
-    if (voiceCommandListener != null) {
-      Log.d(TAG, "Voice command listener already started")
+    if (voiceWakeSession != null) {
+      Log.d(TAG, "Voice wake session already started")
       return
     }
 
-    voiceCommandListener =
-        VoiceCommandListener(
+    voiceWakeSession =
+        VoiceWakeSession(
             context = getApplication<Application>(),
-            command = VOICE_SCAN_COMMAND,
-            onCommandDetected = { handleVoiceScanCommand() },
-            onSpeechRecognized = { transcript ->
-              Log.d(TAG, "Speech recognized: $transcript")
+            commandPhrases = listOf(COMMAND_SCAN, COMMAND_SCAN_DOCUMENT),
+            onScanCommand = { handleVoiceScanCommand() },
+            onStatusChanged = { status ->
+              _uiState.update {
+                it.copy(
+                    isVoiceCommandListening = true,
+                    voiceCommandStatus = status,
+                )
+              }
+            },
+            onTranscript = { transcript ->
               _uiState.update {
                 it.copy(
                     voiceTranscript = transcript,
-                    voiceCommandStatus = "Heard: $transcript",
                 )
               }
             },
         )
-    voiceCommandListener?.start()
-    _uiState.update {
-      it.copy(
-          isVoiceCommandListening = true,
-          voiceCommandStatus = "Listening for 'Hey Meta Scan'",
-      )
-    }
-    Log.i(TAG, "Voice command listener started")
+    voiceWakeSession?.start()
+    Log.i(TAG, "DaVoice wake session started")
   }
 
   fun listenForVoiceTest() {
-    Log.i(TAG, "Manual voice test requested")
-    if (voiceCommandListener == null) {
-      Log.d(TAG, "Voice command listener not initialized, creating new one")
+    Log.i(TAG, "Manual command window requested")
+    if (voiceWakeSession == null) {
       startVoiceCommandListener()
-    } else {
-      Log.d(TAG, "Voice command listener already exists, restarting")
     }
     _uiState.update {
       it.copy(
           isVoiceCommandListening = true,
-          voiceCommandStatus = "Listening... speak now",
+          voiceCommandStatus = "Listening for command…",
           voiceTranscript = null,
       )
     }
-    voiceCommandListener?.restartListeningNow()
-    Log.i(TAG, "Voice listening restarted")
+    voiceWakeSession?.openCommandWindowForTest()
   }
 
   fun pauseVoiceCommandsForAssistant() {
-    Log.i(TAG, "Pausing document voice command listener for RM assistant capture")
-    stopVoiceCommandListener()
+    Log.i(TAG, "Pausing DaVoice session for RM assistant capture")
+    voiceWakeSession?.stop()
+    voiceWakeSession = null
     _uiState.update { it.copy(voiceCommandStatus = "RM assistant listening") }
   }
 
   fun resumeVoiceCommandsAfterAssistant() {
-    if (_uiState.value.streamState == StreamState.STREAMING && voiceCommandListener == null) {
-      Log.i(TAG, "Resuming document voice command listener after RM assistant capture")
+    if (_uiState.value.streamState == StreamState.STREAMING && voiceWakeSession == null) {
+      Log.i(TAG, "Resuming DaVoice session after RM assistant capture")
       startVoiceCommandListener()
     }
   }
 
   private fun stopVoiceCommandListener() {
-    voiceCommandListener?.stop()
-    voiceCommandListener = null
+    voiceWakeSession?.stop()
+    voiceWakeSession = null
     _uiState.update {
       it.copy(isVoiceCommandListening = false, voiceCommandStatus = null, voiceTranscript = null)
     }
@@ -508,8 +507,8 @@ class StreamViewModel(
       _uiState.update { it.copy(voiceCommandStatus = "End current document session before scanning") }
       return
     }
-    stopVoiceCommandListener()
-    Log.i(TAG, "Document session mic policy: hey-meta listener stopped")
+    voiceWakeSession?.pauseForDocumentCapture()
+    Log.i(TAG, "Document session mic policy: DaVoice paused for scan")
     _uiState.update { it.copy(voiceCommandStatus = trigger.requestedStatus) }
     clearDocumentSession()
     captureAndAnalyzeDocument()
@@ -520,6 +519,7 @@ class StreamViewModel(
     if (uiState.value.streamState != StreamState.STREAMING) {
       Log.w(TAG, "Cannot scan document: stream not active (state=${uiState.value.streamState})")
       _uiState.update { it.copy(voiceCommandStatus = "Start stream before scanning") }
+      voiceWakeSession?.resumeAfterDocumentCapture()
       return
     }
 
@@ -528,6 +528,7 @@ class StreamViewModel(
       _uiState.update {
         it.copy(voiceCommandStatus = "Add GEMINI_API_KEY to scan documents")
       }
+      voiceWakeSession?.resumeAfterDocumentCapture()
       return
     }
 
@@ -535,6 +536,7 @@ class StreamViewModel(
     if (activeStream == null) {
       Log.w(TAG, "Cannot scan document: stream object is not available")
       _uiState.update { it.copy(voiceCommandStatus = "Stream not ready") }
+      voiceWakeSession?.resumeAfterDocumentCapture()
       return
     }
 
@@ -680,8 +682,8 @@ class StreamViewModel(
       return
     }
 
-    stopVoiceCommandListener()
-    Log.i(TAG, "Document session mic policy: hey-meta listener stopped")
+    voiceWakeSession?.pauseForDocumentCapture()
+    Log.i(TAG, "Document session mic policy: DaVoice paused for scan")
     documentQuestionStartJob?.cancel()
     documentQuestionSpeechListener?.stop(cancel = true)
     _uiState.update {
@@ -733,7 +735,7 @@ class StreamViewModel(
   fun endDocumentSession() {
     clearDocumentSession()
     resumeDocumentScanVoiceListener()
-    Log.i(TAG, "Document session ended: hey-meta listener resumed")
+    Log.i(TAG, "Document session ended: DaVoice resumed")
   }
 
   private fun createDocumentQuestionSpeechListener(): AssistantSpeechListener =
@@ -871,8 +873,12 @@ class StreamViewModel(
   }
 
   private fun resumeDocumentScanVoiceListener() {
-    if (_uiState.value.streamState == StreamState.STREAMING && voiceCommandListener == null) {
-      startVoiceCommandListener()
+    if (_uiState.value.streamState == StreamState.STREAMING) {
+      if (voiceWakeSession == null) {
+        startVoiceCommandListener()
+      } else {
+        voiceWakeSession?.resumeAfterDocumentCapture()
+      }
     }
   }
 
