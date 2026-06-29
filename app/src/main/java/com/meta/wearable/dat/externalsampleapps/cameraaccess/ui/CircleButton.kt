@@ -29,11 +29,13 @@ import com.meta.wearable.dat.externalsampleapps.cameraaccess.R
 fun CircleButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     content: @Composable RowScope.() -> Unit,
 ) {
   Button(
       modifier = modifier.aspectRatio(1f),
       onClick = onClick,
+      enabled = enabled,
       colors =
           ButtonDefaults.buttonColors(
               containerColor = AppColor.WarmPanel,
@@ -68,8 +70,8 @@ fun ScanDocumentButton(onClick: () -> Unit) {
 }
 
 @Composable
-fun VoiceTestButton(onClick: () -> Unit) {
-  CircleButton(onClick = onClick) {
+fun VoiceTestButton(onClick: () -> Unit, enabled: Boolean = true) {
+  CircleButton(onClick = onClick, enabled = enabled) {
     Icon(
         imageVector = Icons.Filled.Mic,
         contentDescription = "Test voice input",

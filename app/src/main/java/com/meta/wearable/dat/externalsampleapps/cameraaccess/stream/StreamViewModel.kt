@@ -23,6 +23,8 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.media.AudioManager
+import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.FileProvider
@@ -33,6 +35,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.meta.wearable.dat.camera.Stream
 import com.meta.wearable.dat.camera.addStream
+import com.meta.wearable.dat.camera.removeStream
 import com.meta.wearable.dat.camera.types.PhotoData
 import com.meta.wearable.dat.camera.types.StreamConfiguration
 import com.meta.wearable.dat.camera.types.StreamError
@@ -48,9 +51,15 @@ import com.meta.wearable.dat.externalsampleapps.cameraaccess.R
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.FaceRecognitionResult
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.FaceRecognitionService
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.GeminiService
-import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.AssistantSpeechListener
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.ConversationRole
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.ConversationTurn
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.voice.VoiceCommandHandler
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.voice.VoiceDictationCallbacks
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.voice.VoiceDictationPort
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.voice.VoiceSessionController
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.voice.VoiceSessionSnapshot
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.voice.VoiceSessionState
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.voice.VoiceWakeConfig
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.wearables.WearablesViewModel
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -64,7 +73,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 @SuppressLint("AutoCloseableUse")
 class StreamViewModel(
@@ -78,10 +90,8 @@ class StreamViewModel(
     private val SESSION_TERMINAL_STATES = setOf(StreamState.CLOSED)
     private const val FACE_RECOGNITION_INTERVAL_MS = 1_500L
     private const val MATCHED_FACE_RECHECK_INTERVAL_MS = 6_000L
-    private const val VOICE_SCAN_COMMAND = "hey meta scan"
     private const val ENABLE_RAW_AUDIO_RECORDING = false
     private const val MAX_PARTIAL_RESPONSE_CHARS = 900
-    private const val DOCUMENT_QA_MIC_HANDOFF_DELAY_MS = 400L
   }
 
   private enum class DocumentScanTrigger(
@@ -114,13 +124,41 @@ class StreamViewModel(
   private var sessionStateJob: Job? = null
   private var faceRecognitionJob: Job? = null
   private var lastFaceRecognitionAtMs = 0L
-  private var voiceCommandListener: VoiceCommandListener? = null
-  private var documentQuestionSpeechListener: AssistantSpeechListener? = null
   private var documentQuestionStartJob: Job? = null
   private var documentSessionText: String? = null
+  private var lastSpokenForRepeat: String? = null
+  private val voiceSessionController: VoiceSessionController =
+      VoiceSessionController(
+          context = application,
+          commandHandler =
+              object : VoiceCommandHandler {
+                override fun onScanDocument() {
+                  requestDocumentScan(DocumentScanTrigger.VOICE)
+                }
+
+                override fun onCapturePhoto() {
+                  capturePhoto()
+                }
+
+                override fun onCancelVoiceCommand() {
+                  cancelDocumentQuestionListening()
+                  if (_uiState.value.isDocumentSessionActive) {
+                    dismissDocumentAnalysis()
+                  }
+                }
+
+                override fun getLastSpokenResponse(): String? = lastSpokenForRepeat
+              },
+          onSnapshotChanged = ::applyVoiceSnapshot,
+      )
   private var stream: Stream? = null
   private var audioStream: AudioStream? = null
   private var previousDeviceSessionState: DeviceSessionState? = null
+  private var operatingMode: StreamOperatingMode = StreamOperatingMode.CUSTOMER_IDENTIFICATION
+  private var hasEnteredVoiceAssistance = false
+  private var cameraToVoiceTransitionJob: Job? = null
+  @Volatile private var isCameraToVoiceTransitioning = false
+  private var hasEstablishedDatSession = false
 
   // Buffer for recording audio frames
   // Buffer for recording audio frames
@@ -132,7 +170,10 @@ class StreamViewModel(
   private var presentationQueue: PresentationQueue? = null
 
   fun startStream() {
-    Log.i(TAG, "Starting stream with document scan diagnostics enabled")
+    Log.i(TAG, "Starting session in customer identification mode (camera only)")
+    operatingMode = StreamOperatingMode.CUSTOMER_IDENTIFICATION
+    hasEnteredVoiceAssistance = false
+    hasEstablishedDatSession = false
     videoJob?.cancel()
     audioJob?.cancel()
     stateJob?.cancel()
@@ -144,11 +185,15 @@ class StreamViewModel(
     previousDeviceSessionState = null
     faceRecognitionJob?.cancel()
     faceRecognitionJob = null
-    stopVoiceCommandListener()
+    stopVoiceSession()
     clearDocumentSession()
     lastFaceRecognitionAtMs = 0L
-
-    // Reset audio recording buffer
+    _uiState.update {
+      it.copy(
+          operatingMode = StreamOperatingMode.CUSTOMER_IDENTIFICATION,
+          faceRecognitionStatus = "Scanning customer",
+      )
+    }
     audioRecordingBuffer = ByteArrayOutputStream()
     recordedAudioSampleRate = 0
     recordedAudioChannelCount = 0
@@ -191,91 +236,91 @@ class StreamViewModel(
     startStreamInternal()
   }
 
+  private fun observeSessionState(targetSession: DeviceSession) {
+    sessionStateJob?.cancel()
+    sessionStateJob =
+        viewModelScope.launch {
+          targetSession.state.collect { currentState ->
+            val prevState = previousDeviceSessionState
+            previousDeviceSessionState = currentState
+
+            if (currentState == DeviceSessionState.STARTED) {
+              hasEstablishedDatSession = true
+              wearablesViewModel.setDatAppUpdateRequired(false)
+              if (prevState == DeviceSessionState.PAUSED && stream != null) {
+                Log.d(TAG, "Session resumed from PAUSED — stream stays alive")
+                return@collect
+              }
+
+              if (shouldRunCameraStream()) {
+                launchCameraStream()
+              }
+            } else if (currentState == DeviceSessionState.PAUSED) {
+              Log.d(TAG, "Session paused (tap gesture) — keeping stream alive for resume")
+            }
+          }
+        }
+  }
+
   private fun startStreamInternal() {
     Log.d(TAG, "startStreamInternal() - collecting session state")
-    sessionStateJob = viewModelScope.launch {
-      session?.state?.collect { currentState ->
-        val prevState = previousDeviceSessionState
-        previousDeviceSessionState = currentState
+    session?.let { observeSessionState(it) }
+  }
 
-        if (currentState == DeviceSessionState.STARTED) {
-          wearablesViewModel.setDatAppUpdateRequired(false)
-          if (prevState == DeviceSessionState.PAUSED && stream != null) {
-            // PAUSED → STARTED: device-initiated resume (tap gesture).
-            // The SDK handles resume internally via requestCameraOn() → resumeStreaming().
-            // Do NOT recreate the stream — just let the SDK resume it.
-            Log.d(TAG, "Session resumed from PAUSED — stream stays alive")
-            return@collect
-          }
-
-          videoJob?.cancel()
-          stateJob?.cancel()
-          errorJob?.cancel()
-          stream?.stop()
-          stream = null
-          session
-              ?.addStream(StreamConfiguration(videoQuality = VideoQuality.HIGH, frameRate = 15))
-              ?.onSuccess { addedStream ->
-                stream = addedStream
-                videoJob = viewModelScope.launch {
-                  Log.d(TAG, "Collecting video frames from stream")
-                  stream?.videoStream?.collect { handleVideoFrame(it) }
-                  Log.d(TAG, "Video stream collection ended")
-                }
-
-                if (ENABLE_RAW_AUDIO_RECORDING) {
-                  // The DAT SDK doesn't expose a dedicated audio API — glasses mic/speaker audio is
-                  // accessed via the system Bluetooth HFP profile. See:
-                  // https://wearables.developer.meta.com/docs/microphones-and-speakers/
-                  val glassesAudio = BluetoothMicAudioStream(getApplication())
-                  audioStream = glassesAudio
-                  audioJob = viewModelScope.launch {
-                    Log.d(TAG, "Collecting audio frames from glasses microphone")
-                    glassesAudio.audioStream.collect { handleAudioFrame(it) }
-                  }
-                  glassesAudio.start()
-                }
-                startVoiceCommandListener()
-
-                stateJob = viewModelScope.launch {
-                  stream?.state?.collect { streamState ->
-                    val prevStreamState = _uiState.value.streamState
-                    Log.d(TAG, "Stream state changed: $prevStreamState -> $streamState")
-                    _uiState.update { it.copy(streamState = streamState) }
-
-                    val wasActive = prevStreamState !in SESSION_TERMINAL_STATES
-                    val isTerminated = streamState in SESSION_TERMINAL_STATES
-                    if (wasActive && isTerminated) {
-                      Log.d(TAG, "Terminal state reached, navigating back")
-                      stopStream()
-                      wearablesViewModel.navigateToDeviceSelection()
-                    }
-                  }
-                }
-                errorJob = viewModelScope.launch {
-                  stream?.errorStream?.collect { error ->
-                    Log.d(TAG, "Stream error received: $error (description: ${error.description})")
-                    if (error == StreamError.STREAM_ERROR) {
-                      Log.d(TAG, "Non-critical error, stream continues")
-                      return@collect
-                    }
-                    stopStream()
-                    wearablesViewModel.navigateToDeviceSelection()
-                    wearablesViewModel.setRecentError(error.description)
-                  }
-                }
-                stream?.start()
-              }
-              ?.onFailure { error, _ ->
-                Log.e(TAG, "Failed to add stream to session: ${error.description}")
-              }
-        } else if (currentState == DeviceSessionState.PAUSED) {
-          // Tap gesture paused the session — keep the stream alive.
-          // The SDK transitions StreamState to PAUSED internally.
-          Log.d(TAG, "Session paused (tap gesture) — keeping stream alive for resume")
-        }
-      }
+  private suspend fun ensureVoiceReadySession(): Boolean {
+    val currentSession = session
+    val currentState = currentSession?.state?.value
+    if (
+        currentSession != null &&
+            stream == null &&
+            (currentState == DeviceSessionState.STARTED ||
+                currentState == DeviceSessionState.PAUSED)
+    ) {
+      Log.i(TAG, "Voice-only session already active ($currentState)")
+      return true
     }
+
+    Log.i(
+        TAG,
+        "Preparing voice-only DAT session (sessionState=$currentState, hasStream=${stream != null})",
+    )
+    if (currentSession != null) {
+      runCatching { currentSession.stop() }
+      session = null
+      delay(VoiceWakeConfig.POST_CAMERA_TO_VOICE_DELAY_MS)
+    }
+
+    var createdSession: DeviceSession? = null
+    Wearables.createSession(deviceSelector)
+        .onSuccess { createdSession = it }
+        .onFailure { error, _ ->
+          Log.e(TAG, "Failed to create voice-only session: ${error.description}")
+        }
+    if (createdSession == null) {
+      return false
+    }
+    session = createdSession
+    sessionErrorJob?.cancel()
+    sessionErrorJob =
+        viewModelScope.launch {
+          createdSession!!.errors.collect { error -> handleSessionError(error) }
+        }
+    observeSessionState(createdSession!!)
+    createdSession!!.start()
+
+    val ready =
+        withTimeoutOrNull(VoiceWakeConfig.VOICE_SESSION_READY_TIMEOUT_MS) {
+          createdSession!!.state.first {
+            it == DeviceSessionState.STARTED || it == DeviceSessionState.PAUSED
+          }
+        } != null
+    if (ready) {
+      hasEstablishedDatSession = true
+      Log.i(TAG, "Voice-only session ready")
+    } else {
+      Log.e(TAG, "Voice-only session did not reach STARTED in time")
+    }
+    return ready
   }
 
   fun stopStream(onComplete: (Boolean) -> Unit = {}) {
@@ -294,12 +339,15 @@ class StreamViewModel(
     faceRecognitionJob?.cancel()
     faceRecognitionJob = null
     clearDocumentSession()
-    stopVoiceCommandListener()
+    stopVoiceSession()
     lastFaceRecognitionAtMs = 0L
     presentationQueue?.stop()
     presentationQueue = null
+    operatingMode = StreamOperatingMode.CUSTOMER_IDENTIFICATION
+    hasEnteredVoiceAssistance = false
     _uiState.update {
       it.copy(
+          operatingMode = StreamOperatingMode.CUSTOMER_IDENTIFICATION,
           streamState = StreamState.STOPPED,
           isFaceRecognitionRunning = false,
           isVoiceCommandListening = false,
@@ -338,43 +386,257 @@ class StreamViewModel(
   }
 
   private fun handleSessionError(error: DeviceSessionError) {
-    Log.e(TAG, "Session error: ${error.description}")
-    val alreadyShowingUpdateRequired =
-        wearablesViewModel.uiState.value.isFirmwareUpdateRequired ||
-            wearablesViewModel.uiState.value.isDatAppUpdateRequired
+    if (isCameraToVoiceTransitioning) {
+      if (error == DeviceSessionError.SESSION_ENDED_BY_DEVICE) {
+        Log.w(
+            TAG,
+            "SESSION_ENDED_BY_DEVICE during camera→voice handoff; transition job will recover",
+        )
+        return
+      }
+    }
+    handleSessionErrorNow(error)
+  }
 
-    if (
-        error == DeviceSessionError.SESSION_ENDED_BY_DEVICE &&
-            shouldTreatSessionEndedAsDatAppUpdateRequired()
-    ) {
+  private fun handleSessionErrorNow(error: DeviceSessionError) {
+    Log.e(TAG, "Session error: ${error.description}")
+    if (error == DeviceSessionError.DAT_APP_ON_THE_GLASSES_UPDATE_REQUIRED) {
       wearablesViewModel.setDatAppUpdateRequired(true)
       wearablesViewModel.setRecentError(
-          getApplication<Application>().getString(R.string.update_required_dat_app_message)
+          getApplication<Application>().getString(R.string.update_required_dat_app_message),
       )
       stopStream()
       wearablesViewModel.navigateToDeviceSelection()
       return
     }
 
-    if (alreadyShowingUpdateRequired && error == DeviceSessionError.SESSION_ENDED_BY_DEVICE) {
+    if (error == DeviceSessionError.SESSION_ENDED_BY_DEVICE) {
+      val message =
+          if (hasEstablishedDatSession || _uiState.value.videoFrameCount > 0) {
+            getApplication<Application>().getString(R.string.session_lost_reconnect_message)
+          } else {
+            error.description
+          }
+      wearablesViewModel.setRecentError(message)
       stopStream()
       wearablesViewModel.navigateToDeviceSelection()
       return
     }
 
-    if (error == DeviceSessionError.DAT_APP_ON_THE_GLASSES_UPDATE_REQUIRED) {
-      wearablesViewModel.setDatAppUpdateRequired(true)
-    }
     wearablesViewModel.setRecentError(error.description)
     stopStream()
     wearablesViewModel.navigateToDeviceSelection()
   }
 
-  private fun shouldTreatSessionEndedAsDatAppUpdateRequired(): Boolean {
-    val sessionNeverStarted =
-        previousDeviceSessionState != DeviceSessionState.STARTED &&
-            previousDeviceSessionState != DeviceSessionState.PAUSED
-    return sessionNeverStarted
+  private fun shouldRunCameraStream(): Boolean =
+      operatingMode == StreamOperatingMode.CUSTOMER_IDENTIFICATION ||
+          operatingMode == StreamOperatingMode.DOCUMENT_CAPTURE
+
+  private fun setOperatingMode(mode: StreamOperatingMode) {
+    operatingMode = mode
+    _uiState.update { it.copy(operatingMode = mode) }
+  }
+
+  private fun launchCameraStream() {
+    if (stream != null) {
+      Log.d(TAG, "Camera stream already active")
+      return
+    }
+    val activeSession = session ?: return
+    Log.i(TAG, "Launching camera stream for mode=$operatingMode")
+    videoJob?.cancel()
+    stateJob?.cancel()
+    errorJob?.cancel()
+
+    activeSession
+        .addStream(StreamConfiguration(videoQuality = VideoQuality.HIGH, frameRate = 15))
+        ?.onSuccess { addedStream ->
+          stream = addedStream
+          videoJob = viewModelScope.launch {
+            Log.d(TAG, "Collecting video frames from stream")
+            addedStream.videoStream.collect { handleVideoFrame(it) }
+            Log.d(TAG, "Video stream collection ended")
+          }
+
+          if (ENABLE_RAW_AUDIO_RECORDING) {
+            val glassesAudio = BluetoothMicAudioStream(getApplication())
+            audioStream = glassesAudio
+            audioJob = viewModelScope.launch {
+              glassesAudio.audioStream.collect { handleAudioFrame(it) }
+            }
+            glassesAudio.start()
+          }
+
+          stateJob = viewModelScope.launch {
+            addedStream.state.collect { streamState ->
+              val prevStreamState = _uiState.value.streamState
+              Log.d(TAG, "Stream state changed: $prevStreamState -> $streamState")
+              _uiState.update { it.copy(streamState = streamState) }
+
+              if (streamState == StreamState.STREAMING) {
+                hasEstablishedDatSession = true
+              }
+
+              val wasActive = prevStreamState !in SESSION_TERMINAL_STATES
+              val isTerminated = streamState in SESSION_TERMINAL_STATES
+              if (wasActive && isTerminated) {
+                Log.d(TAG, "Terminal stream state reached")
+                if (operatingMode == StreamOperatingMode.CUSTOMER_IDENTIFICATION) {
+                  stopStream()
+                  wearablesViewModel.navigateToDeviceSelection()
+                } else {
+                  detachCameraStream()
+                }
+              }
+            }
+          }
+          errorJob = viewModelScope.launch {
+            addedStream.errorStream.collect { error ->
+              Log.d(TAG, "Stream error received: $error (description: ${error.description})")
+              if (error == StreamError.STREAM_ERROR) {
+                return@collect
+              }
+              if (operatingMode == StreamOperatingMode.CUSTOMER_IDENTIFICATION) {
+                stopStream()
+                wearablesViewModel.navigateToDeviceSelection()
+              } else {
+                detachCameraStream()
+              }
+              wearablesViewModel.setRecentError(error.description)
+            }
+          }
+          addedStream.start()
+        }
+        ?.onFailure { error, _ ->
+          Log.e(TAG, "Failed to add stream to session: ${error.description}")
+        }
+  }
+
+  private fun detachCameraStream() {
+    detachCameraStreamInternal()
+  }
+
+  private suspend fun detachCameraStreamAndSettle() {
+    val activeStream = detachCameraStreamInternal()
+    if (activeStream != null) {
+      withTimeoutOrNull(VoiceWakeConfig.STREAMING_READY_TIMEOUT_MS) {
+        activeStream.state.first {
+          it == StreamState.STOPPED || it == StreamState.CLOSED
+        }
+      }
+    }
+    resetPhoneAudioForBluetoothHandoff()
+    Log.i(
+        TAG,
+        "Waiting ${VoiceWakeConfig.POST_CAMERA_TO_VOICE_DELAY_MS}ms for Bluetooth handoff after camera release",
+    )
+    delay(VoiceWakeConfig.POST_CAMERA_TO_VOICE_DELAY_MS)
+  }
+
+  private fun detachCameraStreamInternal(): Stream? {
+    Log.i(TAG, "Detaching camera stream via session.removeStream()")
+    val activeStream = stream
+    val activeSession = session
+    videoJob?.cancel()
+    videoJob = null
+    audioJob?.cancel()
+    audioJob = null
+    stateJob?.cancel()
+    stateJob = null
+    errorJob?.cancel()
+    errorJob = null
+    faceRecognitionJob?.cancel()
+    faceRecognitionJob = null
+    audioStream?.stop()
+    audioStream = null
+    stream = null
+    if (activeSession != null && activeStream != null) {
+      activeSession
+          .removeStream()
+          .onSuccess { Log.i(TAG, "Camera stream removed from DAT session") }
+          .onFailure { error, _ ->
+            Log.w(TAG, "removeStream failed (${error.description}); stopping stream directly")
+            activeStream.stop()
+          }
+    } else {
+      activeStream?.stop()
+    }
+    _uiState.update { it.copy(streamState = StreamState.STOPPED, videoFrame = null) }
+    return activeStream
+  }
+
+  private fun resetPhoneAudioForBluetoothHandoff() {
+    val audioManager =
+        getApplication<Application>().getSystemService(AudioManager::class.java) ?: return
+    runCatching { audioManager.stopBluetoothSco() }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+      runCatching { audioManager.clearCommunicationDevice() }
+    }
+    audioManager.mode = AudioManager.MODE_NORMAL
+    Log.i(TAG, "Reset phone audio mode before voice route acquisition")
+  }
+
+  private suspend fun waitForStreaming(): Boolean {
+    val activeStream = stream ?: return false
+    if (activeStream.state.value == StreamState.STREAMING) return true
+    return withTimeoutOrNull(VoiceWakeConfig.STREAMING_READY_TIMEOUT_MS) {
+      activeStream.state.first { it == StreamState.STREAMING }
+      true
+    } == true
+  }
+
+  private suspend fun ensureCameraForCapture(): Boolean {
+    if (stream?.state?.value == StreamState.STREAMING) return true
+    launchCameraStream()
+    return waitForStreaming()
+  }
+
+  private suspend fun releaseCameraAfterCapture() {
+    detachCameraStreamAndSettle()
+  }
+
+  private fun transitionToVoiceAssistanceMode(fromCustomerIdentification: Boolean = false) {
+    if (fromCustomerIdentification) {
+      if (hasEnteredVoiceAssistance) return
+      hasEnteredVoiceAssistance = true
+      Log.i(TAG, "Customer identified — switching to voice assistance (camera off)")
+      _uiState.update {
+        it.copy(faceRecognitionStatus = "Customer identified — preparing voice")
+      }
+    }
+    cameraToVoiceTransitionJob?.cancel()
+    cameraToVoiceTransitionJob =
+        viewModelScope.launch {
+          isCameraToVoiceTransitioning = true
+          try {
+            setOperatingMode(StreamOperatingMode.VOICE_ASSISTANCE)
+            presentationQueue?.stop()
+            faceRecognitionJob?.cancel()
+            faceRecognitionJob = null
+            detachCameraStreamAndSettle()
+            if (!ensureVoiceReadySession()) {
+              Log.e(TAG, "Could not establish voice-only session after customer match")
+              _uiState.update {
+                it.copy(
+                    voiceCommandStatus = "Reconnecting to glasses…",
+                    faceRecognitionStatus = "Voice handoff failed — tap Stop and retry",
+                )
+              }
+              wearablesViewModel.setRecentError(
+                  getApplication<Application>().getString(R.string.session_lost_reconnect_message),
+              )
+              return@launch
+            }
+            _uiState.update {
+              it.copy(faceRecognitionStatus = "Customer identified — voice active")
+            }
+            delay(VoiceWakeConfig.POST_ROUTE_STABILIZATION_MS)
+            voiceSessionController.startVoicePhase(preferPhoneMic = false)
+            Log.i(TAG, "Voice phase started on glasses after customer match")
+          } finally {
+            isCameraToVoiceTransitioning = false
+          }
+        }
   }
 
   fun capturePhoto() {
@@ -383,105 +645,143 @@ class StreamViewModel(
       return
     }
 
-    if (uiState.value.streamState == StreamState.STREAMING) {
+    viewModelScope.launch {
+      val wasVoiceMode = operatingMode == StreamOperatingMode.VOICE_ASSISTANCE
+      if (wasVoiceMode) {
+        stopVoiceSession()
+        setOperatingMode(StreamOperatingMode.DOCUMENT_CAPTURE)
+      }
+      if (!ensureCameraForCapture()) {
+        Log.w(TAG, "Cannot capture photo: camera stream not ready")
+        if (wasVoiceMode) {
+          releaseCameraAfterCapture()
+          transitionToVoiceAssistanceMode()
+        }
+        return@launch
+      }
+
       Log.d(TAG, "Starting photo capture")
       _uiState.update { it.copy(isCapturing = true) }
+      stream
+          ?.capturePhoto()
+          ?.onSuccess { photoData ->
+            Log.d(TAG, "Photo capture successful")
+            handlePhotoData(photoData)
+            _uiState.update { it.copy(isCapturing = false) }
+          }
+          ?.onFailure { error, _ ->
+            Log.e(TAG, "Photo capture failed: ${error.description}")
+            _uiState.update { it.copy(isCapturing = false) }
+          }
 
-      viewModelScope.launch {
-        stream
-            ?.capturePhoto()
-            ?.onSuccess { photoData ->
-              Log.d(TAG, "Photo capture successful")
-              handlePhotoData(photoData)
-              _uiState.update { it.copy(isCapturing = false) }
-            }
-            ?.onFailure { error, _ ->
-              Log.e(TAG, "Photo capture failed: ${error.description}")
-              _uiState.update { it.copy(isCapturing = false) }
-            }
+      if (wasVoiceMode) {
+        releaseCameraAfterCapture()
+        transitionToVoiceAssistanceMode()
       }
-    } else {
-      Log.w(
-          TAG,
-          "Cannot capture photo: stream not active (state=${uiState.value.streamState})",
-      )
     }
   }
 
-  private fun startVoiceCommandListener() {
-    if (voiceCommandListener != null) {
-      Log.d(TAG, "Voice command listener already started")
-      return
-    }
+  private fun shouldPreferPhoneMicForVoice(): Boolean =
+      stream != null ||
+          operatingMode == StreamOperatingMode.CUSTOMER_IDENTIFICATION ||
+          operatingMode == StreamOperatingMode.DOCUMENT_CAPTURE
 
-    voiceCommandListener =
-        VoiceCommandListener(
-            context = getApplication<Application>(),
-            command = VOICE_SCAN_COMMAND,
-            onCommandDetected = { handleVoiceScanCommand() },
-            onSpeechRecognized = { transcript ->
-              Log.d(TAG, "Speech recognized: $transcript")
-              _uiState.update {
-                it.copy(
-                    voiceTranscript = transcript,
-                    voiceCommandStatus = "Heard: $transcript",
-                )
-              }
-            },
-        )
-    voiceCommandListener?.start()
-    _uiState.update {
-      it.copy(
-          isVoiceCommandListening = true,
-          voiceCommandStatus = "Listening for 'Hey Meta Scan'",
-      )
-    }
-    Log.i(TAG, "Voice command listener started")
+  private fun startVoiceSession() {
+    voiceSessionController.startVoicePhase(preferPhoneMic = shouldPreferPhoneMicForVoice())
+    Log.i(
+        TAG,
+        "Voice phase resumed (preferPhoneMic=${shouldPreferPhoneMicForVoice()})",
+    )
   }
 
   fun listenForVoiceTest() {
-    Log.i(TAG, "Manual voice test requested")
-    if (voiceCommandListener == null) {
-      Log.d(TAG, "Voice command listener not initialized, creating new one")
-      startVoiceCommandListener()
-    } else {
-      Log.d(TAG, "Voice command listener already exists, restarting")
+    if (isCameraToVoiceTransitioning) {
+      Log.i(TAG, "Ignoring manual voice test during camera→voice handoff")
+      _uiState.update { it.copy(voiceCommandStatus = "Preparing voice after customer match…") }
+      return
     }
+    if (operatingMode == StreamOperatingMode.CUSTOMER_IDENTIFICATION && stream != null) {
+      Log.w(TAG, "Manual voice test blocked while camera stream is active")
+      _uiState.update {
+        it.copy(voiceCommandStatus = "Camera active — wait for customer match")
+      }
+      return
+    }
+    val state = _uiState.value
+    if (state.isDocumentSessionActive && state.documentAnalysis != null) {
+      Log.i(TAG, "Mic button routed to document Q&A")
+      startDocumentQuestionListening()
+      return
+    }
+    val preferPhoneMic = shouldPreferPhoneMicForVoice()
+    Log.i(TAG, "Manual voice test requested (preferPhoneMic=$preferPhoneMic)")
     _uiState.update {
       it.copy(
           isVoiceCommandListening = true,
-          voiceCommandStatus = "Listening... speak now",
+          voiceCommandStatus =
+              if (preferPhoneMic) {
+                "Listening on phone mic…"
+              } else {
+                "Listening… say \"${VoiceWakeConfig.WAKE_PHRASE}\""
+              },
           voiceTranscript = null,
       )
     }
-    voiceCommandListener?.restartListeningNow()
-    Log.i(TAG, "Voice listening restarted")
+    voiceSessionController.restartWakeListening(preferPhoneMic = preferPhoneMic)
   }
 
   fun pauseVoiceCommandsForAssistant() {
-    Log.i(TAG, "Pausing document voice command listener for RM assistant capture")
-    stopVoiceCommandListener()
+    Log.i(TAG, "Pausing wake listening for RM assistant capture")
+    voiceSessionController.stopVoicePhase()
     _uiState.update { it.copy(voiceCommandStatus = "RM assistant listening") }
   }
 
   fun resumeVoiceCommandsAfterAssistant() {
-    if (_uiState.value.streamState == StreamState.STREAMING && voiceCommandListener == null) {
-      Log.i(TAG, "Resuming document voice command listener after RM assistant capture")
-      startVoiceCommandListener()
+    if (operatingMode == StreamOperatingMode.VOICE_ASSISTANCE) {
+      Log.i(TAG, "Resuming wake listening after RM assistant capture")
+      startVoiceSession()
     }
   }
 
-  private fun stopVoiceCommandListener() {
-    voiceCommandListener?.stop()
-    voiceCommandListener = null
+  private fun stopVoiceSession() {
+    voiceSessionController.stopVoicePhase()
     _uiState.update {
-      it.copy(isVoiceCommandListening = false, voiceCommandStatus = null, voiceTranscript = null)
+      it.copy(
+          isVoiceCommandListening = false,
+          voiceCommandStatus = null,
+          voiceTranscript = null,
+          voiceSessionState = VoiceSessionState.Idle,
+          voiceMatchedIntent = null,
+      )
     }
   }
 
-  private fun handleVoiceScanCommand() {
-    Log.i(TAG, "Voice scan command detected")
-    requestDocumentScan(DocumentScanTrigger.VOICE)
+  val dictationPort: VoiceDictationPort
+    get() = voiceSessionController
+
+  private fun applyVoiceSnapshot(snapshot: VoiceSessionSnapshot) {
+    _uiState.update {
+      it.copy(
+          isVoiceCommandListening = snapshot.isWakeListening,
+          voiceCommandStatus = snapshot.statusMessage,
+          voiceTranscript = snapshot.finalTranscript ?: snapshot.partialTranscript,
+          voiceSessionState = snapshot.state,
+          voiceMatchedIntent = snapshot.matchedIntent,
+          voiceRecognitionProvider = snapshot.diagnostics.recognitionProvider,
+          voicePhoneAudioFallback = snapshot.diagnostics.phoneAudioFallback,
+          voiceDiagnosticsError = snapshot.diagnostics.lastError,
+      )
+    }
+  }
+
+  private fun speakVoiceResponse(text: String, onComplete: (() -> Unit)? = null) {
+    lastSpokenForRepeat = text
+    voiceSessionController.speak(text) { onComplete?.invoke() }
+  }
+
+  private fun speakVoiceSummary(text: String, onComplete: (() -> Unit)? = null) {
+    lastSpokenForRepeat = text
+    voiceSessionController.speakSummary(text) { onComplete?.invoke() }
   }
 
   fun scanDocument() {
@@ -508,52 +808,57 @@ class StreamViewModel(
       _uiState.update { it.copy(voiceCommandStatus = "End current document session before scanning") }
       return
     }
-    stopVoiceCommandListener()
-    Log.i(TAG, "Document session mic policy: hey-meta listener stopped")
-    _uiState.update { it.copy(voiceCommandStatus = trigger.requestedStatus) }
+    if (trigger == DocumentScanTrigger.BUTTON || trigger == DocumentScanTrigger.VOICE) {
+      stopVoiceSession()
+    }
+    Log.i(TAG, "Document scan: pausing voice and opening camera briefly")
     clearDocumentSession()
+    setOperatingMode(StreamOperatingMode.DOCUMENT_CAPTURE)
+    _uiState.update { it.copy(voiceCommandStatus = trigger.requestedStatus) }
     captureAndAnalyzeDocument()
   }
 
   private fun captureAndAnalyzeDocument() {
     Log.i(TAG, "Document scan flow starting")
-    if (uiState.value.streamState != StreamState.STREAMING) {
-      Log.w(TAG, "Cannot scan document: stream not active (state=${uiState.value.streamState})")
-      _uiState.update { it.copy(voiceCommandStatus = "Start stream before scanning") }
-      return
-    }
-
     if (!geminiService.isConfigured()) {
       Log.w(TAG, "Skipping document scan because GEMINI_API_KEY is not configured")
       _uiState.update {
         it.copy(voiceCommandStatus = "Add GEMINI_API_KEY to scan documents")
       }
+      transitionToVoiceAssistanceMode()
       return
     }
 
-    val activeStream = stream
-    if (activeStream == null) {
-      Log.w(TAG, "Cannot scan document: stream object is not available")
-      _uiState.update { it.copy(voiceCommandStatus = "Stream not ready") }
-      return
-    }
+    viewModelScope.launch {
+      if (!ensureCameraForCapture()) {
+        Log.w(TAG, "Cannot scan document: camera stream not ready")
+        _uiState.update { it.copy(voiceCommandStatus = "Camera not ready for document scan") }
+        transitionToVoiceAssistanceMode()
+        return@launch
+      }
 
-    val scanStartedAtMs = SystemClock.elapsedRealtime()
-    _uiState.update {
-      it.copy(
-          isDocumentAnalyzing = true,
-          documentScanPhase = DocumentScanPhase.CAPTURING,
-          isCapturing = true,
-          isDocumentSessionActive = true,
-          documentAnalysisPartial = null,
-          documentGroundingText = null,
-          documentAnalysis = null,
-          documentQuestionStatus = "Scan in progress",
-          voiceCommandStatus = "Capturing document",
-      )
-    }
+      val activeStream = stream
+      if (activeStream == null) {
+        _uiState.update { it.copy(voiceCommandStatus = "Camera not ready") }
+        transitionToVoiceAssistanceMode()
+        return@launch
+      }
 
-    viewModelScope.launch(Dispatchers.IO) {
+      val scanStartedAtMs = SystemClock.elapsedRealtime()
+      _uiState.update {
+        it.copy(
+            isDocumentAnalyzing = true,
+            documentScanPhase = DocumentScanPhase.CAPTURING,
+            isCapturing = true,
+            isDocumentSessionActive = true,
+            documentAnalysisPartial = null,
+            documentGroundingText = null,
+            documentAnalysis = null,
+            documentQuestionStatus = "Scan in progress",
+            voiceCommandStatus = "Capturing document",
+        )
+      }
+
       var documentBitmap: Bitmap? = null
       try {
         val captureStartedAtMs = SystemClock.elapsedRealtime()
@@ -572,9 +877,13 @@ class StreamViewModel(
             TAG,
             "Document photo captured: bitmap=${documentBitmap.width}x${documentBitmap.height}, captureDurationMs=$captureDurationMs",
         )
+
+        releaseCameraAfterCapture()
+
         _uiState.update {
           it.copy(
               documentScanPhase = DocumentScanPhase.GROUNDING,
+              isCapturing = false,
               voiceCommandStatus = "Reading document",
               documentQuestionStatus = "Reading document",
           )
@@ -586,12 +895,14 @@ class StreamViewModel(
             "Starting document grounding from captured photo: bitmap=${documentBitmap.width}x${documentBitmap.height}",
         )
         val groundedText =
-            geminiService.transcribeDocumentImage(documentBitmap) { partialText ->
-              _uiState.update { state ->
-                state.copy(
-                    documentAnalysisPartial = partialText.take(MAX_PARTIAL_RESPONSE_CHARS),
-                    documentGroundingText = partialText,
-                )
+            withContext(Dispatchers.IO) {
+              geminiService.transcribeDocumentImage(documentBitmap) { partialText ->
+                _uiState.update { state ->
+                  state.copy(
+                      documentAnalysisPartial = partialText.take(MAX_PARTIAL_RESPONSE_CHARS),
+                      documentGroundingText = partialText,
+                  )
+                }
               }
             }
         val groundingDurationMs = SystemClock.elapsedRealtime() - groundingStartedAtMs
@@ -612,9 +923,11 @@ class StreamViewModel(
             "Starting document analysis from grounded text: chars=${groundedText.length}",
         )
         val analysis =
-            geminiService.analyzeDocument(groundedText) { partialText ->
-              _uiState.update { state ->
-                state.copy(documentAnalysisPartial = partialText.take(MAX_PARTIAL_RESPONSE_CHARS))
+            withContext(Dispatchers.IO) {
+              geminiService.analyzeDocument(groundedText) { partialText ->
+                _uiState.update { state ->
+                  state.copy(documentAnalysisPartial = partialText.take(MAX_PARTIAL_RESPONSE_CHARS))
+                }
               }
             }
         val analysisDurationMs = SystemClock.elapsedRealtime() - analysisStartedAtMs
@@ -634,6 +947,7 @@ class StreamViewModel(
               voiceCommandStatus = "Document analyzed",
           )
         }
+        transitionToVoiceAssistanceMode()
       } catch (e: Exception) {
         val totalDurationMs = SystemClock.elapsedRealtime() - scanStartedAtMs
         Log.w(
@@ -641,6 +955,7 @@ class StreamViewModel(
             "Document analysis failed after ${totalDurationMs}ms: ${e.javaClass.simpleName}: ${e.message}",
             e,
         )
+        releaseCameraAfterCapture()
         documentSessionText = null
         _uiState.update {
           it.copy(
@@ -655,6 +970,7 @@ class StreamViewModel(
               voiceCommandStatus = e.message ?: "Document analysis failed",
           )
         }
+        speakVoiceResponse("Document scan failed.") { transitionToVoiceAssistanceMode() }
       } finally {
         documentBitmap?.recycle()
       }
@@ -679,11 +995,13 @@ class StreamViewModel(
       _uiState.update { it.copy(documentQuestionError = "Document text is no longer available") }
       return
     }
+    if (stream != null || operatingMode == StreamOperatingMode.DOCUMENT_CAPTURE) {
+      _uiState.update { it.copy(documentQuestionError = "Camera is active — finish capture first") }
+      return
+    }
 
-    stopVoiceCommandListener()
-    Log.i(TAG, "Document session mic policy: hey-meta listener stopped")
+    Log.i(TAG, "Document Q&A: switching to dictation on pinned voice route")
     documentQuestionStartJob?.cancel()
-    documentQuestionSpeechListener?.stop(cancel = true)
     _uiState.update {
       it.copy(
           isDocumentQuestionListening = true,
@@ -694,32 +1012,75 @@ class StreamViewModel(
     }
     documentQuestionStartJob =
         viewModelScope.launch {
-          delay(DOCUMENT_QA_MIC_HANDOFF_DELAY_MS)
-          val currentState = _uiState.value
-          if (
-              !currentState.isDocumentSessionActive ||
-                  currentState.documentAnalysis == null ||
-                  !currentState.isDocumentQuestionListening ||
-                  documentQuestionSpeechListener != null
-          ) {
-            Log.d(TAG, "Document Q&A mic start skipped after handoff delay")
-            return@launch
-          }
-          documentQuestionSpeechListener = createDocumentQuestionSpeechListener()
-          Log.i(TAG, "Document Q&A mic started")
-          documentQuestionSpeechListener?.start()
+          delay(VoiceWakeConfig.MIC_ROUTE_STABILIZATION_MS)
+          if (!_uiState.value.isDocumentSessionActive) return@launch
+          voiceSessionController.startDictation(
+              callbacks =
+                  object : VoiceDictationCallbacks {
+                    override fun onReady() {
+                      _uiState.update {
+                        it.copy(
+                            isDocumentQuestionListening = true,
+                            documentQuestionStatus = "Listening for your question",
+                            documentQuestionPartial = null,
+                            documentQuestionError = null,
+                        )
+                      }
+                    }
+
+                    override fun onPartialTranscript(text: String) {
+                      _uiState.update {
+                        it.copy(
+                            isDocumentQuestionListening = true,
+                            documentQuestionStatus = "Capturing question",
+                            documentQuestionPartial = text,
+                            documentQuestionError = null,
+                        )
+                      }
+                    }
+
+                    override fun onFinalTranscript(text: String) {
+                      Log.i(TAG, "Document Q&A mic stopped after transcript")
+                      val cleanedTranscript = text.trim()
+                      _uiState.update {
+                        it.copy(
+                            isDocumentQuestionListening = false,
+                            isDocumentAnswering = cleanedTranscript.isNotBlank(),
+                            documentQuestionStatus = "Question captured",
+                            documentQuestionPartial = cleanedTranscript,
+                            documentLastQuestion = cleanedTranscript,
+                            documentQuestionError = null,
+                        )
+                      }
+                      submitDocumentQuestion(cleanedTranscript)
+                    }
+
+                    override fun onError(message: String) {
+                      Log.i(TAG, "Document Q&A mic stopped after error: $message")
+                      _uiState.update {
+                        it.copy(
+                            isDocumentQuestionListening = false,
+                            documentQuestionStatus = "Question not captured",
+                            documentQuestionError = message,
+                        )
+                      }
+                      startVoiceSession()
+                    }
+                  },
+              resumeWakeAfter = true,
+              preferPhoneMic = false,
+          )
         }
   }
 
   fun stopDocumentQuestionListeningAndUsePartial() {
-    documentQuestionSpeechListener?.stop(cancel = false)
+    voiceSessionController.stopDictation(cancel = false)
   }
 
   fun cancelDocumentQuestionListening() {
     documentQuestionStartJob?.cancel()
     documentQuestionStartJob = null
-    documentQuestionSpeechListener?.stop(cancel = true)
-    documentQuestionSpeechListener = null
+    voiceSessionController.stopDictation(cancel = true)
     Log.i(TAG, "Document Q&A mic stopped after cancel")
     _uiState.update {
       it.copy(
@@ -728,67 +1089,14 @@ class StreamViewModel(
           documentQuestionPartial = null,
       )
     }
+    startVoiceSession()
   }
 
   fun endDocumentSession() {
     clearDocumentSession()
-    resumeDocumentScanVoiceListener()
-    Log.i(TAG, "Document session ended: hey-meta listener resumed")
+    startVoiceSession()
+    Log.i(TAG, "Document session ended: wake listening resumed")
   }
-
-  private fun createDocumentQuestionSpeechListener(): AssistantSpeechListener =
-      AssistantSpeechListener(
-          context = getApplication<Application>(),
-          onReady = {
-            _uiState.update {
-              it.copy(
-                  isDocumentQuestionListening = true,
-                  documentQuestionStatus = "Listening for your question",
-                  documentQuestionPartial = null,
-                  documentQuestionError = null,
-              )
-            }
-          },
-          onPartialTranscript = { transcript ->
-            _uiState.update {
-              it.copy(
-                  isDocumentQuestionListening = true,
-                  documentQuestionStatus = "Capturing question",
-                  documentQuestionPartial = transcript,
-                  documentQuestionError = null,
-              )
-            }
-          },
-          onFinalTranscript = { transcript ->
-            documentQuestionStartJob = null
-            documentQuestionSpeechListener = null
-            Log.i(TAG, "Document Q&A mic stopped after transcript")
-            val cleanedTranscript = transcript.trim()
-            _uiState.update {
-              it.copy(
-                  isDocumentQuestionListening = false,
-                  isDocumentAnswering = cleanedTranscript.isNotBlank(),
-                  documentQuestionStatus = "Question captured",
-                  documentQuestionPartial = cleanedTranscript,
-                  documentLastQuestion = cleanedTranscript,
-                  documentQuestionError = null,
-              )
-            }
-            submitDocumentQuestion(cleanedTranscript)
-          },
-          onError = { message ->
-            documentQuestionStartJob = null
-            documentQuestionSpeechListener = null
-            Log.i(TAG, "Document Q&A mic stopped after error: $message")
-            _uiState.update {
-              it.copy(
-                  isDocumentQuestionListening = false,
-                  documentQuestionStatus = "Question not captured",
-                  documentQuestionError = message,
-              )
-            }
-          },
-      )
 
   private fun submitDocumentQuestion(question: String) {
     val cleanedQuestion = question.trim()
@@ -831,6 +1139,7 @@ class StreamViewModel(
                   it.documentConversation + ConversationTurn(ConversationRole.ASSISTANT, answer),
           )
         }
+        speakVoiceSummary(answer) { startVoiceSession() }
       } catch (e: Exception) {
         Log.w(TAG, "Document question failed", e)
         _uiState.update {
@@ -840,6 +1149,7 @@ class StreamViewModel(
               documentQuestionError = e.message ?: "Document question failed",
           )
         }
+        speakVoiceResponse("I couldn't answer that question.") { startVoiceSession() }
       }
     }
   }
@@ -847,8 +1157,7 @@ class StreamViewModel(
   private fun clearDocumentSession() {
     documentQuestionStartJob?.cancel()
     documentQuestionStartJob = null
-    documentQuestionSpeechListener?.stop(cancel = true)
-    documentQuestionSpeechListener = null
+    voiceSessionController.stopDictation(cancel = false)
     documentSessionText = null
     _uiState.update {
       it.copy(
@@ -867,12 +1176,6 @@ class StreamViewModel(
           documentQuestionError = null,
           documentConversation = emptyList(),
       )
-    }
-  }
-
-  private fun resumeDocumentScanVoiceListener() {
-    if (_uiState.value.streamState == StreamState.STREAMING && voiceCommandListener == null) {
-      startVoiceCommandListener()
     }
   }
 
@@ -929,6 +1232,7 @@ class StreamViewModel(
   }
 
   private fun scheduleFaceRecognition(frameBitmap: Bitmap) {
+    if (operatingMode != StreamOperatingMode.CUSTOMER_IDENTIFICATION) return
     if (_uiState.value.isCapturing) return
 
     val now = SystemClock.elapsedRealtime()
@@ -969,17 +1273,18 @@ class StreamViewModel(
                     TAG,
                     "Face recognition result: ${result.customer.id}, similarity=${result.similarity}",
                 )
+                val isNewMatch =
+                    !_uiState.value.matchedCustomer?.id.equals(result.customer.id, ignoreCase = true)
                 _uiState.update { state ->
-                  val sameCustomer =
-                      state.matchedCustomer?.id.equals(result.customer.id, ignoreCase = true)
-                  if (sameCustomer) {
-                    state.copy(isFaceRecognitionRunning = false)
-                  } else {
-                    state.copy(
-                        matchedCustomer = result.customer,
-                        isFaceRecognitionRunning = false,
-                        faceRecognitionStatus = "Customer matched",
-                    )
+                  state.copy(
+                      matchedCustomer = result.customer,
+                      isFaceRecognitionRunning = false,
+                      faceRecognitionStatus = "Customer matched",
+                  )
+                }
+                if (isNewMatch) {
+                  withContext(Dispatchers.Main) {
+                    transitionToVoiceAssistanceMode(fromCustomerIdentification = true)
                   }
                 }
               }
@@ -1150,6 +1455,7 @@ class StreamViewModel(
 
   override fun onCleared() {
     super.onCleared()
+    voiceSessionController.shutdown()
     stopStream()
     session?.stop()
     session = null

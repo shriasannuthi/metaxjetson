@@ -21,6 +21,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.meta.wearable.dat.core.Wearables
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.R
 import com.meta.wearable.dat.core.selectors.AutoDeviceSelector
 import com.meta.wearable.dat.core.selectors.DeviceSelector
 import com.meta.wearable.dat.core.types.DeviceCompatibility
@@ -124,9 +125,22 @@ class WearablesViewModel(application: Application) : AndroidViewModel(applicatio
   }
 
   fun openDATGlassesAppUpdate(activity: Activity) {
-    Wearables.openDATGlassesAppUpdate(activity).onFailure { error, _ ->
-      setRecentError(error.description)
-    }
+    Wearables.openDATGlassesAppUpdate(activity)
+        .onSuccess {
+          setRecentError(getApplication<Application>().getString(R.string.update_dat_app_opened_hint))
+        }
+        .onFailure { error, _ ->
+          setRecentError(error.description)
+        }
+  }
+
+  fun clearDatAppUpdateRequired() {
+    _uiState.update { it.copy(isDatAppUpdateRequired = false) }
+  }
+
+  fun retryConnectionAfterSessionLoss() {
+    clearDatAppUpdateRequired()
+    clearRecentError()
   }
 
   fun navigateToStreaming(onRequestWearablesPermission: suspend (Permission) -> PermissionStatus) {

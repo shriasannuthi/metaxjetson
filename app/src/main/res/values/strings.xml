@@ -29,6 +29,10 @@
     <string name="update_required_firmware_message" description="Firmware update required warning">Your glasses firmware needs an update before WF Meta can start.</string>
     <string name="update_required_dat_app_message" description="DAT app update required warning">The app on your glasses needs an update before WF Meta can start.</string>
     <string name="update_required_both_message" description="Firmware and DAT app update required warning">Your glasses firmware and app need updates before WF Meta can start.</string>
+    <string name="update_dat_app_no_button_hint" description="Help when Meta AI shows app info without update">If Meta AI opens App Info with no Update button: ensure Developer Mode is on in Meta AI, or publish a release in Wearables Developer Center, then disconnect and reconnect your glasses.</string>
+    <string name="update_dat_app_opened_hint" description="After opening Meta AI update flow">Meta AI opened. Look for Install or Update on the glasses app page. If nothing appears, follow the steps in the message above, then retry.</string>
+    <string name="session_lost_reconnect_message" description="Glasses session dropped unexpectedly">Connection to glasses was lost. Keep them on and nearby, then tap Start streaming again.</string>
+    <string name="retry_connection_button_title" description="Dismiss update gate and retry stream">Retry connection</string>
 
     <!-- SharePhotoDialog -->
     <string name="photo_captured" description="Photo Captured">Photo Captured</string>

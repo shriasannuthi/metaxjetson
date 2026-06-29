@@ -175,6 +175,12 @@ fun NonStreamScreen(
           UpdateRequiredMessage(
               showFirmwareUpdate = uiState.isFirmwareUpdateRequired,
               showDatAppUpdate = uiState.isDatAppUpdateRequired,
+              footnote =
+                  if (uiState.isDatAppUpdateRequired) {
+                    stringResource(R.string.update_dat_app_no_button_hint)
+                  } else {
+                    null
+                  },
           )
         }
 
@@ -195,6 +201,10 @@ fun NonStreamScreen(
                 activity?.let { viewModel.openDATGlassesAppUpdate(it) }
                     ?: Toast.makeText(context, "Activity not available", Toast.LENGTH_SHORT).show()
               },
+          )
+          SwitchButton(
+              label = stringResource(R.string.retry_connection_button_title),
+              onClick = { viewModel.retryConnectionAfterSessionLoss() },
           )
         }
 
@@ -311,6 +321,7 @@ private fun UpdateRequiredMessage(
     showFirmwareUpdate: Boolean,
     showDatAppUpdate: Boolean,
     modifier: Modifier = Modifier,
+    footnote: String? = null,
 ) {
   val message =
       when {
@@ -351,6 +362,13 @@ private fun UpdateRequiredMessage(
           style = MaterialTheme.typography.bodyMedium,
           color = UpdateRequiredForeground,
       )
+      if (!footnote.isNullOrBlank()) {
+        Text(
+            text = footnote,
+            style = MaterialTheme.typography.bodySmall,
+            color = UpdateRequiredForeground,
+        )
+      }
     }
   }
 }

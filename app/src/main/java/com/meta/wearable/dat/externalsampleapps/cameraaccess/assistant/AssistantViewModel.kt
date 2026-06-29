@@ -15,6 +15,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.data.Customer
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.data.CustomerRepository
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.voice.VoiceDictationCallbacks
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.voice.VoiceDictationPort
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,7 +26,7 @@ import kotlinx.coroutines.launch
 class AssistantViewModel(application: Application) : AndroidViewModel(application) {
   private val customerRepository = CustomerRepository(application)
   private val assistantService = GemmaAssistantService(application)
-  private var speechListener: AssistantSpeechListener? = null
+  private var dictationPort: VoiceDictationPort? = null
   private var selectedCustomerId: String? = null
 
   private val _uiState = MutableStateFlow(AssistantUiState())
@@ -39,6 +41,10 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
           } ?: 0
       _uiState.update { it.copy(customers = customers, selectedCustomerIndex = selectedIndex) }
     }
+  }
+
+  fun attachDictationPort(port: VoiceDictationPort) {
+    dictationPort = port
   }
 
   fun selectCustomer(customer: Customer) {
@@ -63,70 +69,74 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
 
   fun startListening() {
     val customer = _uiState.value.customer
+    val port = dictationPort
     if (customer == null) {
       _uiState.update { it.copy(error = "Recognize or select a customer before asking") }
       return
     }
-    speechListener?.stop(cancel = true)
-    speechListener =
-        AssistantSpeechListener(
-            context = getApplication<Application>(),
-            onReady = {
-              _uiState.update {
-                it.copy(
-                    isListening = true,
-                    speechStatus = "Listening to customer...",
-                    partialTranscript = null,
-                    error = null,
-                )
-              }
-            },
-            onPartialTranscript = { transcript ->
-              _uiState.update {
-                it.copy(
-                    isListening = true,
-                    speechStatus = "Capturing question",
-                    partialTranscript = transcript,
-                    error = null,
-                )
-              }
-            },
-            onFinalTranscript = { transcript ->
-              speechListener = null
-              val cleanedTranscript = transcript.trim()
-              _uiState.update {
-                it.copy(
-                    isListening = false,
-                    isAnswering = cleanedTranscript.isNotBlank(),
-                    speechStatus = "Heard customer question",
-                    partialTranscript = cleanedTranscript,
-                    lastQuestion = cleanedTranscript,
-                    error = null,
-                )
-              }
-              submitQuestion(cleanedTranscript)
-            },
-            onError = { message ->
-              speechListener = null
-              _uiState.update {
-                it.copy(
-                    isListening = false,
-                    speechStatus = null,
-                    error = message,
-                )
-              }
-            },
-        )
-    speechListener?.start()
+    if (port == null) {
+      _uiState.update { it.copy(error = "Voice session is not ready") }
+      return
+    }
+    port.stopDictation(cancel = true)
+    port.startDictation(
+        object : VoiceDictationCallbacks {
+          override fun onReady() {
+            _uiState.update {
+              it.copy(
+                  isListening = true,
+                  speechStatus = "Listening to customer...",
+                  partialTranscript = null,
+                  error = null,
+              )
+            }
+          }
+
+          override fun onPartialTranscript(text: String) {
+            _uiState.update {
+              it.copy(
+                  isListening = true,
+                  speechStatus = "Capturing question",
+                  partialTranscript = text,
+                  error = null,
+              )
+            }
+          }
+
+          override fun onFinalTranscript(text: String) {
+            val cleanedTranscript = text.trim()
+            _uiState.update {
+              it.copy(
+                  isListening = false,
+                  isAnswering = cleanedTranscript.isNotBlank(),
+                  speechStatus = "Heard customer question",
+                  partialTranscript = cleanedTranscript,
+                  lastQuestion = cleanedTranscript,
+                  error = null,
+              )
+            }
+            submitQuestion(cleanedTranscript)
+          }
+
+          override fun onError(message: String) {
+            _uiState.update {
+              it.copy(
+                  isListening = false,
+                  speechStatus = null,
+                  error = message,
+              )
+            }
+          }
+        },
+    )
   }
 
   fun stopListeningAndUsePartial() {
-    speechListener?.stop(cancel = false)
+    dictationPort?.stopDictation(cancel = false)
   }
 
   fun cancelListening() {
-    speechListener?.stop(cancel = true)
-    speechListener = null
+    dictationPort?.stopDictation(cancel = true)
     _uiState.update { it.copy(isListening = false, speechStatus = null) }
   }
 
@@ -190,8 +200,8 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
   }
 
   override fun onCleared() {
-    speechListener?.stop(cancel = true)
-    speechListener = null
+    dictationPort?.stopDictation(cancel = true)
+    dictationPort = null
     super.onCleared()
   }
 

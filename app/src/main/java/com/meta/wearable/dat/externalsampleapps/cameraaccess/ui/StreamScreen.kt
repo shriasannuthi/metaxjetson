@@ -107,6 +107,7 @@ import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.Assistant
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.ConversationTurn
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.data.Customer
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.stream.DocumentScanPhase
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.stream.StreamOperatingMode
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.stream.StreamViewModel
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.wearables.WearablesViewModel
 import kotlinx.coroutines.delay
@@ -154,6 +155,9 @@ fun StreamScreen(
   var isStreamHudExpanded by remember { mutableStateOf(false) }
 
   LaunchedEffect(Unit) { streamViewModel.startStream() }
+  LaunchedEffect(streamViewModel) {
+    assistantViewModel.attachDictationPort(streamViewModel.dictationPort)
+  }
   LaunchedEffect(streamUiState.matchedCustomer?.id) {
     streamUiState.matchedCustomer?.let { customer ->
       assistantViewModel.selectCustomer(customer)
@@ -201,6 +205,7 @@ fun StreamScreen(
     }
 
     StreamHud(
+        operatingMode = streamUiState.operatingMode,
         customer = streamUiState.matchedCustomer,
         isScanning = streamUiState.isFaceRecognitionRunning,
         recognitionStatus = streamUiState.faceRecognitionStatus,
@@ -209,6 +214,7 @@ fun StreamScreen(
         isAnalyzing = streamUiState.isDocumentAnalyzing,
         voiceStatus = streamUiState.voiceCommandStatus,
         transcript = streamUiState.voiceTranscript,
+        phoneAudioFallback = streamUiState.voicePhoneAudioFallback,
         isExpanded = isStreamHudExpanded,
         onToggleExpanded = { isStreamHudExpanded = !isStreamHudExpanded },
         modifier = Modifier.align(Alignment.TopStart).padding(top = 54.dp, start = 16.dp),
@@ -289,6 +295,7 @@ fun StreamScreen(
 
         VoiceTestButton(
             onClick = { streamViewModel.listenForVoiceTest() },
+            enabled = streamUiState.operatingMode != StreamOperatingMode.CUSTOMER_IDENTIFICATION,
         )
 
         ScanDocumentButton(
@@ -632,6 +639,7 @@ private fun AssistantDock.alignment(): Alignment =
 
 @Composable
 private fun StreamHud(
+    operatingMode: StreamOperatingMode,
     customer: Customer?,
     isScanning: Boolean,
     recognitionStatus: String?,
@@ -640,13 +648,22 @@ private fun StreamHud(
     isAnalyzing: Boolean,
     voiceStatus: String?,
     transcript: String?,
+    phoneAudioFallback: Boolean = false,
     isExpanded: Boolean,
     onToggleExpanded: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+  val modeLabel =
+      when (operatingMode) {
+        StreamOperatingMode.CUSTOMER_IDENTIFICATION -> "Identifying customer"
+        StreamOperatingMode.VOICE_ASSISTANCE -> "Voice service"
+        StreamOperatingMode.DOCUMENT_CAPTURE -> "Document capture"
+      }
   val hasVoice = isListening || !voiceStatus.isNullOrBlank() || !transcript.isNullOrBlank() || isAnalyzing
   val hasRecognition = customer != null || !recognitionStatus.isNullOrBlank() || isScanning
-  if (audioFrameCount <= 0 && !hasVoice && !hasRecognition) return
+  if (audioFrameCount <= 0 && !hasVoice && !hasRecognition && operatingMode == StreamOperatingMode.CUSTOMER_IDENTIFICATION) {
+    return
+  }
 
   Box(modifier = modifier) {
     if (!isExpanded) {
@@ -674,6 +691,11 @@ private fun StreamHud(
             modifier = Modifier.padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+          Text(
+              text = modeLabel,
+              color = Color.White.copy(alpha = 0.72f),
+              style = MaterialTheme.typography.labelSmall,
+          )
           if (hasRecognition) {
             CustomerRecognitionOverlay(
                 customer = customer,
@@ -696,9 +718,14 @@ private fun StreamHud(
               if (hasVoice) {
                 StatusRow(
                     icon = Icons.Default.Mic,
-                    title = voiceStatus ?: "Hey Meta",
-                    value = transcript?.takeIf { it.isNotBlank() } ?: "Listening",
-                    tint = if (isAnalyzing) AppColor.Yellow else AppColor.Green,
+                    title = voiceStatus ?: "Okay meta",
+                    value =
+                        when {
+                          phoneAudioFallback -> "Phone mic (glasses unavailable)"
+                          !transcript.isNullOrBlank() -> transcript
+                          else -> "Listening"
+                        },
+                    tint = if (isAnalyzing || phoneAudioFallback) AppColor.Yellow else AppColor.Green,
                 )
               }
             }
