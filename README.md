@@ -32,8 +32,9 @@ Meta glasses -> Bluetooth -> Android app
 
 Read these in order:
 
-1. [Windows setup](docs/WINDOWS_LOCAL_SETUP.md): fresh installation, migration from the previous
-   Paddle installation, Android build, and first offline test.
+1. [Windows setup](docs/WINDOWS_LOCAL_SETUP.md): fresh-system project download, Android Studio and
+   SDK installation, GitHub Packages authentication, Ollama/Python/Gemma setup, Android
+   installation, and first offline test.
 2. [Daily start and stop](docs/DAILY_START_STOP.md): exact startup and complete shutdown after setup.
 3. [Architecture overview](docs/ARCHITECTURE_OVERVIEW.md): where each component runs and how data
    moves through the system.
