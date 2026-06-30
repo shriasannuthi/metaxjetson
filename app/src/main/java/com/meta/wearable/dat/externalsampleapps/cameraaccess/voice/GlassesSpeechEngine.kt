@@ -46,16 +46,30 @@ class GlassesSpeechEngine(context: Context) {
   }
 
   suspend fun speak(lines: String): Boolean {
-    val cleaned = lines.trim()
+    val cleaned = SpeakableText.toPlainSpeech(lines.trim())
     if (cleaned.isBlank()) return false
     if (!isReady.get()) return false
 
-    releaseCommunicationDevice()
+    val routedToGlasses = VoiceAudioEnvironment.routeSpeechOutput(appContext, audioManager)
+    // #region agent log
+    com.meta.wearable.dat.externalsampleapps.cameraaccess.debug.DebugTrace.log(
+        location = "GlassesSpeechEngine:speak",
+        message = "tts speak",
+        hypothesisId = "H3-H4",
+        data =
+            mapOf(
+                "routedToGlasses" to routedToGlasses.toString(),
+                "chars" to cleaned.length.toString(),
+                "preview" to cleaned.take(80),
+            ),
+    )
+    // #endregion
 
     return suspendCancellableCoroutine { continuation ->
       val utteranceId = "wf-meta-${System.nanoTime()}"
       val tts = textToSpeech
       if (tts == null) {
+        releaseCommunicationDevice()
         continuation.resume(false)
         return@suspendCancellableCoroutine
       }
@@ -65,15 +79,18 @@ class GlassesSpeechEngine(context: Context) {
             override fun onStart(utteranceId: String?) = Unit
 
             override fun onDone(utteranceId: String?) {
+              releaseCommunicationDevice()
               if (continuation.isActive) continuation.resume(true)
             }
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
+              releaseCommunicationDevice()
               if (continuation.isActive) continuation.resume(false)
             }
 
             override fun onError(utteranceId: String?, errorCode: Int) {
+              releaseCommunicationDevice()
               if (continuation.isActive) continuation.resume(false)
             }
           },
@@ -87,11 +104,17 @@ class GlassesSpeechEngine(context: Context) {
               utteranceId,
           )
       if (result == TextToSpeech.ERROR && continuation.isActive) {
+        releaseCommunicationDevice()
         continuation.resume(false)
       }
 
       continuation.invokeOnCancellation {
         runCatching { tts.stop() }
+        releaseCommunicationDevice()
+      }
+
+      if (routedToGlasses) {
+        Log.i(TAG, "TTS routed to glasses speaker")
       }
     }
   }

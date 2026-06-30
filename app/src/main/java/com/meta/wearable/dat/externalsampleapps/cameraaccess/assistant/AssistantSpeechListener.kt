@@ -9,16 +9,14 @@
 package com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant
 
 import android.content.Context
-import android.content.Intent
 import android.media.AudioManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
-import com.meta.wearable.dat.externalsampleapps.cameraaccess.voice.VoiceAudioEnvironment
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.voice.SpeechCaptureSession
 import java.util.Locale
 
 class AssistantSpeechListener(
@@ -46,7 +44,7 @@ class AssistantSpeechListener(
     }
     finished = false
     bestPartialTranscript = null
-    routeAudioToGlassesIfAvailable()
+    SpeechCaptureSession.routeInput(appContext, audioManager)
     recognizer =
         SpeechRecognizer.createSpeechRecognizer(appContext).apply {
           setRecognitionListener(
@@ -65,7 +63,18 @@ class AssistantSpeechListener(
 
                 override fun onError(error: Int) {
                   Log.w(TAG, "Assistant speech recognition error: $error (${error.description()})")
-                  val fallback = bestPartialTranscript?.cleanTranscript()
+                  if (SpeechCaptureSession.shouldRetry(error)) {
+                    mainHandler.postDelayed(
+                        {
+                          recognizer?.startListening(
+                              SpeechCaptureSession.createRecognizerIntent(Locale.getDefault().toLanguageTag()),
+                          )
+                        },
+                        SpeechCaptureSession.retryDelayMs(),
+                    )
+                    return
+                  }
+                  val fallback = bestPartialTranscript?.let { SpeechCaptureSession.cleanTranscript(it) }
                   if (!fallback.isNullOrBlank()) {
                     finishWithTranscript(fallback)
                   } else {
@@ -74,9 +83,10 @@ class AssistantSpeechListener(
                 }
 
                 override fun onResults(results: Bundle?) {
-                  val transcript = results.bestTranscript()
+                  val transcript = SpeechCaptureSession.extractBestTranscript(results)
                   if (transcript.isBlank()) {
-                    val fallback = bestPartialTranscript?.cleanTranscript().orEmpty()
+                    val fallback =
+                        bestPartialTranscript?.let { SpeechCaptureSession.cleanTranscript(it) }.orEmpty()
                     if (fallback.isNotBlank()) {
                       finishWithTranscript(fallback)
                     } else {
@@ -88,7 +98,7 @@ class AssistantSpeechListener(
                 }
 
                 override fun onPartialResults(partialResults: Bundle?) {
-                  val transcript = partialResults.bestTranscript()
+                  val transcript = SpeechCaptureSession.extractBestTranscript(partialResults)
                   if (transcript.isNotBlank()) {
                     bestPartialTranscript = transcript
                     onPartialTranscript(transcript)
@@ -101,21 +111,7 @@ class AssistantSpeechListener(
         }
     try {
       recognizer?.startListening(
-          Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(
-                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
-            )
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1_800L)
-            putExtra(
-                RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
-                1_200L,
-            )
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 700L)
-          }
+          SpeechCaptureSession.createRecognizerIntent(Locale.getDefault().toLanguageTag()),
       )
     } catch (e: RuntimeException) {
       Log.w(TAG, "Unable to start assistant speech recognition", e)
@@ -129,7 +125,7 @@ class AssistantSpeechListener(
       return
     }
     if (!finished && !cancel) {
-      bestPartialTranscript?.cleanTranscript()?.takeIf { it.isNotBlank() }?.let {
+      bestPartialTranscript?.let { SpeechCaptureSession.cleanTranscript(it) }?.takeIf { it.isNotBlank() }?.let {
         finishWithTranscript(it)
         return
       }
@@ -138,17 +134,6 @@ class AssistantSpeechListener(
     runCatching { recognizer?.cancel() }
     destroyRecognizer()
   }
-
-  private fun Bundle?.bestTranscript(): String {
-    val matches = this?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
-    return matches
-        .map { it.cleanTranscript() }
-        .filter { it.isNotBlank() }
-        .maxByOrNull { it.length }
-        .orEmpty()
-  }
-
-  private fun String.cleanTranscript(): String = trim().replace(Regex("\\s+"), " ")
 
   private fun finishWithTranscript(transcript: String) {
     if (finished) return
@@ -167,11 +152,7 @@ class AssistantSpeechListener(
   private fun destroyRecognizer() {
     runCatching { recognizer?.destroy() }
     recognizer = null
-    runCatching { VoiceAudioEnvironment.releaseCommunicationDevice(audioManager) }
-  }
-
-  private fun routeAudioToGlassesIfAvailable() {
-    VoiceAudioEnvironment.routeSpeechInput(appContext, audioManager)
+    SpeechCaptureSession.releaseRoute(audioManager)
   }
 
   private fun Int.description(): String =

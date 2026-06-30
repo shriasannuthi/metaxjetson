@@ -32,12 +32,23 @@ enum class StreamOperatingMode {
   VOICE_SESSION,
 }
 
+enum class HandoffPhase {
+  IDLE,
+  SWITCHING_TO_GLASSES,
+  SWITCHING_TO_CAMERA,
+  PREPARING_CAPTURE,
+}
+
 data class StreamUiState(
     val streamState: StreamState = StreamState.STOPPED,
     val operatingMode: StreamOperatingMode = StreamOperatingMode.CAMERA_IDENTIFYING,
     val isCameraActive: Boolean = true,
     val pendingCustomerQna: Boolean = false,
     val videoFrame: Bitmap? = null,
+    val identificationSnapshot: Bitmap? = null,
+    val handoffPhase: HandoffPhase = HandoffPhase.IDLE,
+    val isGlassesScoConnected: Boolean = false,
+    val isMockDeviceMode: Boolean = false,
     val videoFrameCount: Int = 0,
     val audioFrameCount: Int = 0,
     val capturedPhoto: Bitmap? = null,

@@ -10,6 +10,7 @@ package com.meta.wearable.dat.externalsampleapps.cameraaccess.voice
 
 enum class VoiceCommandIntent {
   OPEN_QNA,
+  DOCUMENT_QNA,
   SCAN_DOCUMENT,
   CAPTURE_PHOTO,
   CANCEL,

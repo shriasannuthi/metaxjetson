@@ -375,15 +375,15 @@ private fun GettingStartedSheetContent(onContinue: () -> Unit, modifier: Modifie
     ) {
       TipItem(
           iconResId = R.drawable.video_icon,
-          text = stringResource(R.string.getting_started_tip_permission),
-      )
-      TipItem(
-          iconResId = R.drawable.tap_icon,
-          text = stringResource(R.string.getting_started_tip_photo),
+          text = stringResource(R.string.getting_started_tip_identify),
       )
       TipItem(
           iconResId = R.drawable.smart_glasses_icon,
-          text = stringResource(R.string.getting_started_tip_led),
+          text = stringResource(R.string.getting_started_tip_voice),
+      )
+      TipItem(
+          iconResId = R.drawable.tap_icon,
+          text = stringResource(R.string.getting_started_tip_documents),
       )
     }
 

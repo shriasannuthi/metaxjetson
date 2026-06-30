@@ -12,7 +12,9 @@ import android.content.Context
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.util.Log
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.stream.HandoffPhase
 import com.meta.wearable.dat.mockdevice.MockDeviceKit
+import kotlinx.coroutines.delay
 
 /**
  * Chooses phone vs glasses Bluetooth audio routing.
@@ -26,6 +28,15 @@ import com.meta.wearable.dat.mockdevice.MockDeviceKit
 object VoiceAudioEnvironment {
   private const val TAG = "CameraAccess:VoiceAudio"
   private const val MOCK_HANDOFF_DELAY_MS = 150L
+  private const val ROUTE_POLL_INTERVAL_MS = 100L
+  private const val ROUTE_READY_DELAY_MS = 400L
+  private const val ROUTE_MAX_TIMEOUT_MS = 2_000L
+
+  enum class RouteTarget {
+    PHONE_MIC,
+    GLASSES_SCO,
+    CAMERA,
+  }
 
   fun isMockDeviceActive(context: Context): Boolean {
     return runCatching { MockDeviceKit.getInstance(context).isEnabled }.getOrDefault(false)
@@ -44,8 +55,76 @@ object VoiceAudioEnvironment {
   fun bluetoothHandoffDelayMs(context: Context, audioManager: AudioManager): Long {
     return if (prefersPhoneAudio(context, audioManager)) {
       MOCK_HANDOFF_DELAY_MS
+    } else if (hasGlassesBluetoothSco(audioManager)) {
+      ROUTE_READY_DELAY_MS
     } else {
       VoiceWakeConfig.BLUETOOTH_HANDOFF_DELAY_MS
+    }
+  }
+
+  /**
+   * Polls until the requested audio route is ready or the timeout elapses.
+   *
+   * Uses adaptive delays: 400 ms when SCO is already available, up to 2 s max.
+   */
+  suspend fun awaitAudioRoute(
+      context: Context,
+      audioManager: AudioManager,
+      target: RouteTarget,
+      onProgress: (HandoffPhase) -> Unit = {},
+  ): Boolean {
+    val progressPhase =
+        when (target) {
+          RouteTarget.GLASSES_SCO -> HandoffPhase.SWITCHING_TO_GLASSES
+          RouteTarget.CAMERA -> HandoffPhase.SWITCHING_TO_CAMERA
+          RouteTarget.PHONE_MIC -> HandoffPhase.IDLE
+        }
+    if (progressPhase != HandoffPhase.IDLE) {
+      onProgress(progressPhase)
+    }
+
+    when (target) {
+      RouteTarget.PHONE_MIC -> {
+        releaseCommunicationDevice(audioManager)
+        delay(MOCK_HANDOFF_DELAY_MS)
+        onProgress(HandoffPhase.IDLE)
+        return true
+      }
+      RouteTarget.GLASSES_SCO -> {
+        if (prefersPhoneAudio(context, audioManager)) {
+          releaseCommunicationDevice(audioManager)
+          delay(MOCK_HANDOFF_DELAY_MS)
+          onProgress(HandoffPhase.IDLE)
+          return false
+        }
+        val routed = routeSpeechInput(context, audioManager)
+        if (routed) {
+          delay(ROUTE_READY_DELAY_MS)
+          onProgress(HandoffPhase.IDLE)
+          return true
+        }
+        val deadline = System.currentTimeMillis() + ROUTE_MAX_TIMEOUT_MS
+        while (System.currentTimeMillis() < deadline) {
+          if (routeSpeechInput(context, audioManager)) {
+            delay(ROUTE_READY_DELAY_MS)
+            onProgress(HandoffPhase.IDLE)
+            return true
+          }
+          delay(ROUTE_POLL_INTERVAL_MS)
+        }
+        onProgress(HandoffPhase.IDLE)
+        return false
+      }
+      RouteTarget.CAMERA -> {
+        releaseCommunicationDevice(audioManager)
+        val delayMs = bluetoothHandoffDelayMs(context, audioManager)
+        val deadline = System.currentTimeMillis() + delayMs.coerceAtMost(ROUTE_MAX_TIMEOUT_MS)
+        while (System.currentTimeMillis() < deadline) {
+          delay(ROUTE_POLL_INTERVAL_MS.coerceAtMost(delayMs))
+        }
+        onProgress(HandoffPhase.IDLE)
+        return true
+      }
     }
   }
 
@@ -77,6 +156,15 @@ object VoiceAudioEnvironment {
     }
     Log.i(TAG, "Speech input routed to glasses microphone")
     return true
+  }
+
+  /**
+   * Routes TTS output to the glasses speaker over Bluetooth SCO when available.
+   *
+   * @return true when output is routed to glasses, false when using the phone speaker.
+   */
+  fun routeSpeechOutput(context: Context, audioManager: AudioManager): Boolean {
+    return routeSpeechInput(context, audioManager)
   }
 
   fun releaseCommunicationDevice(audioManager: AudioManager) {

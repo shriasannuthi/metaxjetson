@@ -12,21 +12,55 @@
     <string name="home_tip_video_title" description="Tip title about video capture">Live customer view</string>
     <string name="home_tip_audio_title" description="Tip title about audio">Voice-assisted service</string>
     <string name="home_tip_hands_title" description="Tip title about hands free">Document intelligence</string>
-    <string name="home_tip_video" description="Tip about video capture">Use Meta glasses to start a live field-of-view session for customer support.</string>
-    <string name="home_tip_audio" description="Tip about audio">Capture spoken customer questions and receive concise RM guidance.</string>
-    <string name="home_tip_hands" description="Tip about hands free">Scan customer documents and ask follow-up questions in the same session.</string>
+    <string name="home_tip_video" description="Tip about video capture">Look at your customer — glasses camera identifies them automatically.</string>
+    <string name="home_tip_audio" description="Tip about audio">Say &quot;Hey Charly&quot; on your phone, then speak commands through your glasses.</string>
+    <string name="home_tip_hands" description="Tip about hands free">Scan documents on demand and ask follow-up questions in the same session.</string>
     <string name="home_redirect_message" description="Redirect message">WF Meta will open the Meta AI app to confirm your glasses connection.</string>
 
     <!-- Stream Screen -->
     <string name="live_stream" description="Live Stream">Live stream</string>
     <string name="voice_listening_hey_charly" description="Wake word listening status">Hey Charly</string>
-    <string name="voice_post_wake_prompt" description="Post wake command prompt">Say a command or wait for Q&amp;A</string>
+    <string name="voice_post_wake_prompt" description="Post wake command prompt">Say scan, photo, question, or cancel</string>
     <string name="voice_post_wake_glasses_prompt" description="Post wake command prompt when using glasses mic">Speak to your glasses: scan document, take photo, or ask a question</string>
     <string name="voice_wake_phone_hint" description="Wake word uses phone mic hint">Say &quot;Hey Charly&quot; near your phone, then speak commands to your glasses</string>
+    <string name="voice_session_welcome_subtitle" description="Voice session welcome subtitle">Customer identified — say Hey Charly near your phone</string>
+    <string name="voice_handoff_glasses" description="Handoff to glasses audio">Connecting to your glasses…</string>
+    <string name="voice_handoff_camera" description="Handoff to camera">Preparing camera…</string>
+    <string name="voice_handoff_capture" description="Preparing capture handoff">Getting ready to capture…</string>
+    <string name="voice_command_retry" description="No command heard retry prompt">Didn\'t catch that — say scan, photo, question, or cancel</string>
+    <string name="voice_command_cancelled" description="Voice command cancelled">Cancelled</string>
+    <string name="voice_command_please_wait" description="Command ignored during scan">Please wait — document scan in progress</string>
+    <string name="voice_command_heard" description="Voice command heard prefix">Heard: %1$s</string>
+    <string name="voice_customer_matched" description="Customer matched status">Customer matched</string>
+    <string name="voice_confirming_customer" description="Face match confirmation in progress">Confirming customer…</string>
+    <string name="voice_scanning_customer" description="Scanning customer status">Scanning customer</string>
+    <string name="voice_face_not_in_db" description="Face not in database">Face not in customer DB</string>
+    <string name="voice_no_face_detected" description="No face detected">No face detected</string>
+    <string name="voice_listening_on_glasses" description="Listening on glasses badge">Listening on your glasses</string>
+    <string name="voice_wake_near_phone" description="Wake near phone badge">Say Hey Charly near your phone</string>
+    <string name="voice_mock_device_banner" description="MockDeviceKit phone mic banner">MockDeviceKit: wake word uses phone mic; commands use phone speaker</string>
+    <string name="voice_powered_by_rayban" description="Ray-Ban Meta branding">Powered by Ray-Ban Meta</string>
+    <string name="voice_session_command_scan" description="Scan command chip">Scan</string>
+    <string name="voice_session_command_photo" description="Photo command chip">Photo</string>
+    <string name="voice_session_command_ask" description="Ask command chip">Ask</string>
+    <string name="voice_session_command_cancel" description="Cancel command chip">Cancel</string>
+    <string name="voice_scan_capturing" description="Scan TTS capturing">Capturing the document.</string>
+    <string name="voice_scan_reading" description="Scan TTS reading">Reading the document.</string>
+    <string name="voice_scan_analyzing" description="Scan TTS analyzing">Analyzing the document.</string>
+    <string name="voice_scan_ready" description="Scan TTS ready">Document ready. Ask me anything about it.</string>
+    <string name="voice_opening_customer_qna" description="Opening customer Q&amp;A">Opening customer Q&amp;A</string>
+    <string name="voice_opening_document_qna" description="Opening document Q&amp;A">Opening document Q&amp;A</string>
+    <string name="voice_recognize_customer_first" description="Recognize customer first">Recognize a customer first</string>
+    <string name="voice_camera_not_ready_scan" description="Camera not ready for scan">Camera not ready for scan</string>
+    <string name="voice_camera_not_ready_photo" description="Camera not ready for photo">Camera not ready for photo</string>
+    <string name="voice_photo_capture_failed" description="Photo capture failed">Photo capture failed: %1$s</string>
+    <string name="voice_rm_assistant_listening" description="RM assistant listening">RM assistant listening</string>
+    <string name="voice_welcome_back" description="Welcome back TTS">Welcome back, %1$s.</string>
+    <string name="voice_scanning_document_now" description="Scanning document TTS">Scanning the document now.</string>
 
     <!-- Non Stream Screen -->
     <string name="camera_access_icon_description" description="WF Meta icon description">WF Meta icon</string>
-    <string name="non_stream_screen_description" description="Non stream screen description">Start a secure glasses stream for customer recognition, RM guidance, and document scan Q&amp;A.</string>
+    <string name="non_stream_screen_description" description="Non stream screen description">Look at your customer to identify them, then use voice commands on your Meta glasses to scan documents and get RM guidance.</string>
     <string name="non_stream_screen_title" description="Non stream screen title">WF Meta readiness</string>
     <string name="waiting_for_active_device" description="Waiting for active device message">Waiting for an active device</string>
     <string name="update_required_title" description="Update required warning title">Update required</string>
@@ -85,6 +119,9 @@
     <!-- Getting Started Sheet -->
     <string name="getting_started_title" description="Getting Started sheet title">Getting started</string>
     <string name="getting_started_tip_permission" description="Tip about camera permission">First, WF Meta needs permission to use your glasses camera.</string>
+    <string name="getting_started_tip_identify" description="Tip about customer identification">Look at your customer — WF Meta identifies them automatically from your glasses camera.</string>
+    <string name="getting_started_tip_voice" description="Tip about voice workflow">Say &quot;Hey Charly&quot; near your phone, then speak scan, photo, or question commands to your glasses.</string>
+    <string name="getting_started_tip_documents" description="Tip about document scan">Scan documents on demand and ask follow-up questions by voice or tap.</string>
     <string name="getting_started_tip_led" description="Tip about capture LED">The capture LED lets others know when you\'re capturing content or going live.</string>
     <string name="getting_started_tip_photo" description="Tip about photo capture">Capture photos or scan documents from the stream toolbar.</string>
     <string name="getting_started_continue" description="Continue button">Continue</string>

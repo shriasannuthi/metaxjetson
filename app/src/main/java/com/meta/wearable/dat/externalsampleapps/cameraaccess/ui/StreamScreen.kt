@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,6 +38,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -100,6 +102,7 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.meta.wearable.dat.camera.types.StreamState
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.BuildConfig
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.R
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.DocumentAnalysisResult
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.AssistantUiState
@@ -107,6 +110,8 @@ import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.Assistant
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.ConversationTurn
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.data.Customer
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.stream.DocumentScanPhase
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.stream.HandoffPhase
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.stream.StreamOperatingMode
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.stream.StreamViewModel
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.wearables.WearablesViewModel
 import kotlinx.coroutines.delay
@@ -148,10 +153,19 @@ fun StreamScreen(
   val assistantUiState by assistantViewModel.uiState.collectAsStateWithLifecycle()
   var isAssistantVisible by remember { mutableStateOf(false) }
   var didPauseVoiceCommandsForAssistant by remember { mutableStateOf(false) }
-  var lastAutoListenedCustomerId by remember { mutableStateOf<String?>(null) }
   var canvasMode by remember { mutableStateOf(StreamCanvasMode.IMMERSIVE) }
   var assistantDock by remember { mutableStateOf(AssistantDock.BOTTOM) }
   var isStreamHudExpanded by remember { mutableStateOf(false) }
+
+  val isVoiceSessionIdle =
+      streamUiState.operatingMode == StreamOperatingMode.VOICE_SESSION && !streamUiState.isCameraActive
+  val isBurstCapture =
+      streamUiState.isCameraActive &&
+          (streamUiState.isCapturing || streamUiState.isDocumentAnalyzing)
+  val showVoiceListeningUi =
+      streamUiState.isVoiceCommandListening ||
+          !streamUiState.voiceCommandStatus.isNullOrBlank() ||
+          streamUiState.handoffPhase != HandoffPhase.IDLE
 
   LaunchedEffect(Unit) { streamViewModel.startStream() }
   LaunchedEffect(Unit) {
@@ -160,10 +174,17 @@ fun StreamScreen(
   LaunchedEffect(streamUiState.matchedCustomer?.id) {
     streamUiState.matchedCustomer?.let { customer ->
       assistantViewModel.selectCustomer(customer)
-      if (lastAutoListenedCustomerId != customer.id) {
-        lastAutoListenedCustomerId = customer.id
-        isAssistantVisible = true
-      }
+      isStreamHudExpanded = true
+    }
+  }
+  LaunchedEffect(streamUiState.operatingMode) {
+    if (streamUiState.operatingMode == StreamOperatingMode.VOICE_SESSION) {
+      isStreamHudExpanded = true
+    }
+  }
+  LaunchedEffect(showVoiceListeningUi) {
+    if (showVoiceListeningUi) {
+      isStreamHudExpanded = true
     }
   }
   LaunchedEffect(streamUiState.pendingCustomerQna) {
@@ -197,31 +218,64 @@ fun StreamScreen(
                   ),
               )
   ) {
-    StreamCanvas(
-        videoFrame = streamUiState.videoFrame,
-        frameCount = streamUiState.videoFrameCount,
-        canvasMode = canvasMode,
-        modifier = Modifier.fillMaxSize(),
-    )
+    if (isVoiceSessionIdle && !isBurstCapture) {
+      VoiceSessionScreen(
+          snapshot = streamUiState.identificationSnapshot,
+          customer = streamUiState.matchedCustomer,
+          voiceStatus = streamUiState.voiceCommandStatus,
+          transcript = streamUiState.voiceTranscript,
+          isListening = streamUiState.isVoiceCommandListening,
+          handoffPhase = streamUiState.handoffPhase,
+          isGlassesScoConnected = streamUiState.isGlassesScoConnected,
+          isMockDeviceMode = streamUiState.isMockDeviceMode,
+          documentScanPhase = streamUiState.documentScanPhase,
+          isDocumentSessionActive = streamUiState.isDocumentSessionActive,
+          documentAnalysis = streamUiState.documentAnalysis,
+          onAskCustomer = { isAssistantVisible = true },
+          modifier = Modifier.fillMaxSize(),
+      )
+    } else {
+      StreamCanvas(
+          videoFrame = streamUiState.videoFrame,
+          frameCount = streamUiState.videoFrameCount,
+          canvasMode = canvasMode,
+          modifier = Modifier.fillMaxSize(),
+      )
+    }
     if (streamUiState.streamState == StreamState.STARTING) {
       CircularProgressIndicator(
           modifier = Modifier.align(Alignment.Center),
       )
     }
 
-    StreamHud(
-        customer = streamUiState.matchedCustomer,
-        isScanning = streamUiState.isFaceRecognitionRunning,
-        recognitionStatus = streamUiState.faceRecognitionStatus,
-        audioFrameCount = streamUiState.audioFrameCount,
-        isListening = streamUiState.isVoiceCommandListening,
-        isAnalyzing = streamUiState.isDocumentAnalyzing,
-        voiceStatus = streamUiState.voiceCommandStatus,
-        transcript = streamUiState.voiceTranscript,
-        isExpanded = isStreamHudExpanded,
-        onToggleExpanded = { isStreamHudExpanded = !isStreamHudExpanded },
-        modifier = Modifier.align(Alignment.TopStart).padding(top = 54.dp, start = 16.dp),
-    )
+    if (!isVoiceSessionIdle) {
+      StreamHud(
+          customer = streamUiState.matchedCustomer,
+          isScanning = streamUiState.isFaceRecognitionRunning,
+          recognitionStatus = streamUiState.faceRecognitionStatus,
+          audioFrameCount = streamUiState.audioFrameCount,
+          isListening = streamUiState.isVoiceCommandListening,
+          isAnalyzing = streamUiState.isDocumentAnalyzing,
+          voiceStatus = streamUiState.voiceCommandStatus,
+          transcript = streamUiState.voiceTranscript,
+          handoffPhase = streamUiState.handoffPhase,
+          isExpanded = isStreamHudExpanded,
+          onToggleExpanded = {
+            if (!showVoiceListeningUi) {
+              isStreamHudExpanded = !isStreamHudExpanded
+            }
+          },
+          modifier = Modifier.align(Alignment.TopStart).padding(top = 54.dp, start = 16.dp),
+      )
+    }
+
+    if (streamUiState.isMockDeviceMode && BuildConfig.DEBUG) {
+      MockDeviceMicBanner(
+          modifier =
+              Modifier.align(Alignment.TopCenter)
+                  .padding(top = 54.dp, start = 16.dp, end = 16.dp),
+      )
+    }
 
     WfBrandMark(
         size = 44.dp,
@@ -229,35 +283,45 @@ fun StreamScreen(
         modifier = Modifier.align(Alignment.TopEnd).padding(top = 54.dp, end = 16.dp),
     )
 
-    DocumentSessionOverlay(
-        analysis = streamUiState.documentAnalysis,
-        isAnalyzing = streamUiState.isDocumentAnalyzing,
-        scanPhase = streamUiState.documentScanPhase,
-        partialText = streamUiState.documentAnalysisPartial,
-        scanStatus = streamUiState.documentQuestionStatus,
-        isSessionActive = streamUiState.isDocumentSessionActive,
-        isQuestionListening = streamUiState.isDocumentQuestionListening,
-        questionStatus = streamUiState.documentQuestionStatus,
-        partialQuestion = streamUiState.documentQuestionPartial,
-        lastQuestion = streamUiState.documentLastQuestion,
-        answer = streamUiState.documentAnswer,
-        isAnswering = streamUiState.isDocumentAnswering,
-        error = streamUiState.documentQuestionError,
-        conversation = streamUiState.documentConversation,
-        onStartListening = { streamViewModel.startDocumentQuestionListening() },
-        onStopListeningAndUsePartial = { streamViewModel.stopDocumentQuestionListeningAndUsePartial() },
-        onCancelListening = { streamViewModel.cancelDocumentQuestionListening() },
-        onRetryScan = { streamViewModel.retryDocumentScan() },
-        onEndSession = { streamViewModel.endDocumentSession() },
-        modifier =
-            Modifier.align(Alignment.Center)
-                .padding(start = 16.dp, end = 16.dp, top = 52.dp, bottom = 104.dp),
-    )
+    val showDocumentOverlay =
+        streamUiState.isDocumentSessionActive &&
+            !streamUiState.isVoiceCommandListening &&
+            streamUiState.handoffPhase == HandoffPhase.IDLE &&
+            !isBurstCapture
+
+    if (showDocumentOverlay) {
+      DocumentSessionOverlay(
+          analysis = streamUiState.documentAnalysis,
+          isAnalyzing = streamUiState.isDocumentAnalyzing,
+          scanPhase = streamUiState.documentScanPhase,
+          partialText = streamUiState.documentAnalysisPartial,
+          scanStatus = streamUiState.documentQuestionStatus,
+          isSessionActive = streamUiState.isDocumentSessionActive,
+          isQuestionListening = streamUiState.isDocumentQuestionListening,
+          questionStatus = streamUiState.documentQuestionStatus,
+          partialQuestion = streamUiState.documentQuestionPartial,
+          lastQuestion = streamUiState.documentLastQuestion,
+          answer = streamUiState.documentAnswer,
+          isAnswering = streamUiState.isDocumentAnswering,
+          error = streamUiState.documentQuestionError,
+          conversation = streamUiState.documentConversation,
+          onStartListening = { streamViewModel.startDocumentQuestionListening() },
+          onStopListeningAndUsePartial = { streamViewModel.stopDocumentQuestionListeningAndUsePartial() },
+          onCancelListening = { streamViewModel.cancelDocumentQuestionListening() },
+          onRetryScan = { streamViewModel.retryDocumentScan() },
+          onEndSession = { streamViewModel.endDocumentSession() },
+          compactMode = isVoiceSessionIdle,
+          modifier =
+              Modifier.align(Alignment.Center)
+                  .padding(start = 16.dp, end = 16.dp, top = 52.dp, bottom = 104.dp),
+      )
+    }
 
     Box(modifier = Modifier.fillMaxSize().padding(all = 24.dp)) {
       StreamWindowControls(
           canvasMode = canvasMode,
           assistantDock = assistantDock,
+          hasMatchedCustomer = streamUiState.matchedCustomer != null,
           onCanvasModeChanged = { canvasMode = it },
           onAssistantDockChanged = { assistantDock = it },
           onOpenAssistant = { isAssistantVisible = true },
@@ -296,9 +360,13 @@ fun StreamScreen(
             onClick = { streamViewModel.capturePhoto() },
         )
 
-        VoiceTestButton(
-            onClick = { streamViewModel.listenForVoiceTest() },
-        )
+        if (BuildConfig.DEBUG) {
+        if (BuildConfig.DEBUG) {
+          VoiceTestButton(
+              onClick = { streamViewModel.listenForVoiceTest() },
+          )
+        }
+        }
 
         ScanDocumentButton(
             onClick = { streamViewModel.scanDocument() },
@@ -552,6 +620,7 @@ private fun MiniMetric(label: String, value: String, modifier: Modifier = Modifi
 private fun StreamWindowControls(
     canvasMode: StreamCanvasMode,
     assistantDock: AssistantDock,
+    hasMatchedCustomer: Boolean,
     onCanvasModeChanged: (StreamCanvasMode) -> Unit,
     onAssistantDockChanged: (AssistantDock) -> Unit,
     onOpenAssistant: () -> Unit,
@@ -563,8 +632,8 @@ private fun StreamWindowControls(
       verticalArrangement = Arrangement.spacedBy(10.dp),
   ) {
     FloatingActionButton(
-        onClick = onOpenAssistant,
-        containerColor = AppColor.WfRed,
+        onClick = { if (hasMatchedCustomer) onOpenAssistant() },
+        containerColor = if (hasMatchedCustomer) AppColor.WfRed else AppColor.Line,
         contentColor = Color.White,
         elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp),
     ) {
@@ -649,11 +718,17 @@ private fun StreamHud(
     isAnalyzing: Boolean,
     voiceStatus: String?,
     transcript: String?,
+    handoffPhase: HandoffPhase,
     isExpanded: Boolean,
     onToggleExpanded: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-  val hasVoice = isListening || !voiceStatus.isNullOrBlank() || !transcript.isNullOrBlank() || isAnalyzing
+  val hasVoice =
+      isListening ||
+          !voiceStatus.isNullOrBlank() ||
+          !transcript.isNullOrBlank() ||
+          isAnalyzing ||
+          handoffPhase != HandoffPhase.IDLE
   val hasRecognition = customer != null || !recognitionStatus.isNullOrBlank() || isScanning
   if (audioFrameCount <= 0 && !hasVoice && !hasRecognition) return
 
@@ -703,6 +778,14 @@ private fun StreamHud(
                 )
               }
               if (hasVoice) {
+                handoffPhase.takeIf { it != HandoffPhase.IDLE }?.let { phase ->
+                  StatusRow(
+                      icon = Icons.Default.Mic,
+                      title = handoffLabel(phase),
+                      value = "In progress",
+                      tint = AppColor.Yellow,
+                  )
+                }
                 StatusRow(
                     icon = Icons.Default.Mic,
                     title = voiceStatus ?: stringResource(R.string.voice_listening_hey_charly),
@@ -1107,49 +1190,278 @@ private fun ConversationStrip(turns: List<ConversationTurn>) {
 }
 
 @Composable
-private fun VoiceCommandOverlay(
-    isListening: Boolean,
-    isAnalyzing: Boolean,
-    status: String?,
+private fun handoffLabel(phase: HandoffPhase): String =
+    when (phase) {
+      HandoffPhase.SWITCHING_TO_GLASSES -> stringResource(R.string.voice_handoff_glasses)
+      HandoffPhase.SWITCHING_TO_CAMERA -> stringResource(R.string.voice_handoff_camera)
+      HandoffPhase.PREPARING_CAPTURE -> stringResource(R.string.voice_handoff_capture)
+      HandoffPhase.IDLE -> ""
+    }
+
+@Composable
+private fun MockDeviceMicBanner(modifier: Modifier = Modifier) {
+  Surface(
+      modifier = modifier.fillMaxWidth(),
+      shape = RoundedCornerShape(12.dp),
+      color = AppColor.Yellow.copy(alpha = 0.22f),
+  ) {
+    Text(
+        text = stringResource(R.string.voice_mock_device_banner),
+        color = Color.White,
+        style = MaterialTheme.typography.labelSmall,
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+    )
+  }
+}
+
+@Composable
+private fun VoiceSessionScreen(
+    snapshot: Bitmap?,
+    customer: Customer?,
+    voiceStatus: String?,
     transcript: String?,
+    isListening: Boolean,
+    handoffPhase: HandoffPhase,
+    isGlassesScoConnected: Boolean,
+    isMockDeviceMode: Boolean,
+    documentScanPhase: DocumentScanPhase,
+    isDocumentSessionActive: Boolean,
+    documentAnalysis: DocumentAnalysisResult?,
+    onAskCustomer: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-  if (!isListening && status.isNullOrBlank() && transcript.isNullOrBlank() && !isAnalyzing) return
+  val pulseTransition = rememberInfiniteTransition(label = "voice_mic_pulse")
+  val pulseAlpha by pulseTransition.animateFloat(
+      initialValue = 0.35f,
+      targetValue = 1f,
+      animationSpec = infiniteRepeatable(animation = tween(900, easing = LinearEasing)),
+      label = "pulse_alpha",
+  )
 
-  Box(
-      modifier =
-          modifier
-              .fillMaxWidth(0.78f)
-              .background(Color.Black.copy(alpha = 0.58f), shape = RoundedCornerShape(8.dp))
-              .padding(8.dp)
-  ) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-      Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(
-            imageVector = Icons.Default.Mic,
-            contentDescription = "Voice command",
-            tint = if (isAnalyzing) AppColor.Yellow else AppColor.Green,
-            modifier = Modifier.size(16.dp),
-        )
-        Spacer(modifier = Modifier.width(6.dp))
-        Text(
-            text = status ?: "Listening",
-            color = Color.White,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
+  Box(modifier = modifier) {
+    snapshot?.let { frame ->
+      Image(
+          bitmap = frame.asImageBitmap(),
+          contentDescription = stringResource(R.string.live_stream),
+          modifier = Modifier.fillMaxSize(),
+          contentScale = ContentScale.Crop,
+          alpha = 0.42f,
+      )
+    }
+
+    Column(
+        modifier =
+            Modifier.fillMaxSize()
+                .padding(horizontal = 20.dp, vertical = 96.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+      Text(
+          text = stringResource(R.string.voice_powered_by_rayban),
+          color = Color.White.copy(alpha = 0.48f),
+          style = MaterialTheme.typography.labelSmall,
+          fontWeight = FontWeight.Medium,
+      )
+
+      VoiceGlassesBadge(
+          isGlassesScoConnected = isGlassesScoConnected,
+          isMockDeviceMode = isMockDeviceMode,
+      )
+
+      customer?.let { VoiceCustomerCard(customer = it, onAskCustomer = onAskCustomer) }
+
+      if (isDocumentSessionActive && documentAnalysis != null) {
+        DocumentSummaryChip(
+            title = documentAnalysis.json?.stringValue("documentType") ?: "Document ready",
+            phase = documentScanPhase,
         )
       }
-      transcript?.takeIf { it.isNotBlank() }?.let {
+
+      VoiceListeningPanel(
+          isListening = isListening,
+          voiceStatus = voiceStatus,
+          transcript = transcript,
+          handoffPhase = handoffPhase,
+          pulseAlpha = pulseAlpha,
+      )
+
+      VoiceCommandChips()
+    }
+  }
+}
+
+@Composable
+private fun VoiceGlassesBadge(isGlassesScoConnected: Boolean, isMockDeviceMode: Boolean) {
+  val badgeText =
+      when {
+        isMockDeviceMode -> stringResource(R.string.voice_wake_near_phone)
+        isGlassesScoConnected -> stringResource(R.string.voice_listening_on_glasses)
+        else -> stringResource(R.string.voice_wake_near_phone)
+      }
+  Surface(shape = RoundedCornerShape(20.dp), color = AppColor.Glass) {
+    Row(
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Box(
+          modifier =
+              Modifier.size(8.dp)
+                  .background(
+                      if (isGlassesScoConnected && !isMockDeviceMode) AppColor.Green else AppColor.Yellow,
+                      CircleShape,
+                  ),
+      )
+      Text(
+          text = badgeText,
+          color = Color.White,
+          style = MaterialTheme.typography.labelSmall,
+      )
+    }
+  }
+}
+
+@Composable
+private fun VoiceCustomerCard(
+    customer: Customer,
+    onAskCustomer: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+  Surface(
+      modifier = modifier.fillMaxWidth(),
+      shape = RoundedCornerShape(18.dp),
+      color = Color.Black.copy(alpha = 0.55f),
+  ) {
+    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+      Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically,
+      ) {
         Text(
-            text = "Transcript: $it",
-            color = Color.White.copy(alpha = 0.82f),
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
+            text = customer.name,
+            color = Color.White,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f),
         )
+        Button(onClick = onAskCustomer, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+          Text("Ask", style = MaterialTheme.typography.labelMedium)
+        }
+      }
+      Text(
+          text = customer.profile,
+          color = Color.White.copy(alpha = 0.78f),
+          style = MaterialTheme.typography.bodySmall,
+          maxLines = 2,
+          overflow = TextOverflow.Ellipsis,
+      )
+      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        InsightTile(
+            icon = Icons.Default.History,
+            label = "Last visit",
+            value = customer.lastVisit,
+            modifier = Modifier.weight(1f),
+        )
+        customer.accounts.firstOrNull()?.let { account ->
+          InsightTile(
+              icon = Icons.Default.AccountBalance,
+              label = account.type.ifBlank { "Account" },
+              value = listOf(account.balance, account.status).filter { it.isNotBlank() }.joinToString(" - "),
+              modifier = Modifier.weight(1f),
+          )
+        }
       }
     }
+  }
+}
+
+@Composable
+private fun DocumentSummaryChip(title: String, phase: DocumentScanPhase) {
+  Surface(shape = RoundedCornerShape(14.dp), color = Color.White.copy(alpha = 0.10f)) {
+    Row(
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Text(text = title, color = Color.White, style = MaterialTheme.typography.labelMedium)
+      Text(
+          text = phase.name.lowercase().replaceFirstChar { it.titlecase() },
+          color = AppColor.Yellow,
+          style = MaterialTheme.typography.labelSmall,
+      )
+    }
+  }
+}
+
+@Composable
+private fun VoiceListeningPanel(
+    isListening: Boolean,
+    voiceStatus: String?,
+    transcript: String?,
+    handoffPhase: HandoffPhase,
+    pulseAlpha: Float,
+) {
+  Surface(shape = RoundedCornerShape(18.dp), color = Color.Black.copy(alpha = 0.50f)) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Icon(
+          imageVector = Icons.Default.Mic,
+          contentDescription = null,
+          tint = if (isListening) AppColor.Green.copy(alpha = pulseAlpha) else AppColor.Yellow,
+          modifier = Modifier.size(22.dp),
+      )
+      Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text =
+                when {
+                  handoffPhase != HandoffPhase.IDLE -> handoffLabel(handoffPhase)
+                  !voiceStatus.isNullOrBlank() -> voiceStatus
+                  isListening -> stringResource(R.string.voice_listening_hey_charly)
+                  else -> stringResource(R.string.voice_session_welcome_subtitle)
+                },
+            color = Color.White,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
+        transcript?.takeIf { it.isNotBlank() }?.let {
+          Text(
+              text = it,
+              color = Color.White.copy(alpha = 0.72f),
+              style = MaterialTheme.typography.bodySmall,
+              maxLines = 2,
+              overflow = TextOverflow.Ellipsis,
+          )
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun VoiceCommandChips(modifier: Modifier = Modifier) {
+  Row(
+      modifier = modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+  ) {
+    listOf(
+            R.string.voice_session_command_scan,
+            R.string.voice_session_command_photo,
+            R.string.voice_session_command_ask,
+            R.string.voice_session_command_cancel,
+        )
+        .forEach { labelRes ->
+          Surface(shape = RoundedCornerShape(20.dp), color = Color.White.copy(alpha = 0.10f)) {
+            Text(
+                text = stringResource(labelRes),
+                color = Color.White.copy(alpha = 0.86f),
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            )
+          }
+        }
   }
 }
 
@@ -1174,9 +1486,27 @@ private fun DocumentSessionOverlay(
     onCancelListening: () -> Unit,
     onRetryScan: () -> Unit,
     onEndSession: () -> Unit,
+    compactMode: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
   if (!isSessionActive && analysis == null && !isAnalyzing) return
+
+  if (compactMode && analysis != null && !isAnalyzing) {
+    Surface(modifier = modifier, shape = RoundedCornerShape(12.dp), color = Color.Black.copy(alpha = 0.72f)) {
+      Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = analysis.json?.stringValue("documentType") ?: "Document session",
+            color = Color.White,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        analysis.json?.stringValue("summary")?.let {
+          Text(text = it, color = Color.White.copy(alpha = 0.82f), style = MaterialTheme.typography.bodySmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        }
+      }
+    }
+    return
+  }
 
   Column(
       modifier = modifier.fillMaxSize(),

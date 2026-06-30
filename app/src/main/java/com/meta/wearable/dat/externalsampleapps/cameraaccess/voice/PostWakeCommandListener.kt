@@ -9,35 +9,27 @@
 package com.meta.wearable.dat.externalsampleapps.cameraaccess.voice
 
 import android.content.Context
-import android.content.Intent
 import android.media.AudioManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
-import java.util.Locale
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.debug.DebugTrace
 
 /**
  * Short-lived [SpeechRecognizer] session after a wake word detection.
- *
- * Routes speech input to the Meta glasses microphone over Bluetooth SCO when glasses are connected
- * (same pattern as [com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.AssistantSpeechListener]
- * and the DAT microphones-and-speakers guide). Falls back to the phone mic for MockDeviceKit.
- *
- * Note: on-device wake word detection still uses the phone microphone at 16 kHz (model requirement).
  */
 class PostWakeCommandListener(
     context: Context,
+    private val commandContext: () -> VoiceCommandContext = { VoiceCommandContext() },
     private val onTranscript: (String) -> Unit = {},
     private val onSessionEnded: (String?) -> Unit,
     private val onError: (String) -> Unit = {},
 ) {
   companion object {
     private const val TAG = "CameraAccess:PostWakeCommand"
-    private const val RETRY_DELAY_MS = 350L
   }
 
   private val appContext = context.applicationContext
@@ -61,7 +53,7 @@ class PostWakeCommandListener(
     }
     isActive = true
     bestTranscript = null
-    usesGlassesMicrophone = routeAudioForCommandListening()
+    usesGlassesMicrophone = SpeechCaptureSession.routeInput(appContext, audioManager)
     speechRecognizer =
         SpeechRecognizer.createSpeechRecognizer(appContext).apply {
           setRecognitionListener(recognitionListener)
@@ -81,7 +73,7 @@ class PostWakeCommandListener(
     runCatching { if (cancel) speechRecognizer?.cancel() else speechRecognizer?.stopListening() }
     runCatching { speechRecognizer?.destroy() }
     speechRecognizer = null
-    runCatching { VoiceAudioEnvironment.releaseCommunicationDevice(audioManager) }
+    SpeechCaptureSession.releaseRoute(audioManager)
     onSessionEnded(bestTranscript)
   }
 
@@ -99,20 +91,7 @@ class PostWakeCommandListener(
 
   private fun listenOnce() {
     if (!isActive || speechRecognizer == null) return
-    val intent =
-        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-          putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-          putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.US.toLanguageTag())
-          putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-          putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-          putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1_800L)
-          putExtra(
-              RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
-              1_200L,
-          )
-          putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 700L)
-        }
-    runCatching { speechRecognizer?.startListening(intent) }
+    runCatching { speechRecognizer?.startListening(SpeechCaptureSession.createRecognizerIntent()) }
         .onFailure {
           onError(it.message ?: "Failed to start command listener")
           stop()
@@ -133,63 +112,71 @@ class PostWakeCommandListener(
 
         override fun onError(error: Int) {
           if (!isActive) return
-          when (error) {
-            SpeechRecognizer.ERROR_NO_MATCH,
-            SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
-            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> {
-              mainHandler.postDelayed({ listenOnce() }, RETRY_DELAY_MS)
-            }
-            else -> {
-              val fallback = bestTranscript?.cleanTranscript()
-              if (!fallback.isNullOrBlank()) {
-                stop(cancel = false)
-              } else {
-                onError("Command recognition error: $error")
-                stop()
-              }
-            }
+          if (SpeechCaptureSession.shouldRetry(error)) {
+            mainHandler.postDelayed({ listenOnce() }, SpeechCaptureSession.retryDelayMs())
+            return
+          }
+          val fallback = bestTranscript?.let { SpeechCaptureSession.cleanTranscript(it) }
+          if (!fallback.isNullOrBlank()) {
+            stop(cancel = false)
+          } else {
+            onError("Command recognition error: $error")
+            stop()
           }
         }
 
         override fun onResults(results: Bundle?) {
-          val transcript = results.bestTranscript()
-          if (transcript.isBlank() || !VoiceCommandResolver.isActionableCommand(transcript)) {
-            mainHandler.postDelayed({ listenOnce() }, RETRY_DELAY_MS)
+          val transcript = recordTranscript(results)
+          val context = commandContext()
+          // #region agent log
+          DebugTrace.log(
+              location = "PostWakeCommandListener:onResults",
+              message = "final transcript",
+              hypothesisId = "H7",
+              data =
+                  mapOf(
+                      "transcript" to (transcript.ifBlank { "null" }),
+                      "actionable" to VoiceCommandResolver.isActionableCommand(transcript, context).toString(),
+                      "intent" to VoiceCommandResolver.resolve(transcript, context).name,
+                  ),
+          )
+          // #endregion
+          if (transcript.isBlank() || !VoiceCommandResolver.isActionableCommand(transcript, context)) {
+            mainHandler.postDelayed({ listenOnce() }, SpeechCaptureSession.retryDelayMs())
             return
           }
-          handleResults(results)
           stop(cancel = false)
         }
 
         override fun onPartialResults(partialResults: Bundle?) {
-          val transcript = partialResults.bestTranscript()
-          if (transcript.isBlank() || !VoiceCommandResolver.isActionableCommand(transcript)) return
-          handleResults(partialResults)
+          val transcript = recordTranscript(partialResults)
+          if (transcript.isBlank()) return
+          val context = commandContext()
+          if (VoiceCommandResolver.isActionableCommand(transcript, context)) {
+            handleResults(partialResults)
+          }
         }
 
         override fun onEvent(eventType: Int, params: Bundle?) = Unit
       }
 
+  private fun recordTranscript(results: Bundle?): String {
+    val transcript = SpeechCaptureSession.extractBestTranscript(results)
+    if (transcript.isNotBlank()) {
+      val current = bestTranscript
+      if (current == null || transcript.length >= current.length) {
+        bestTranscript = transcript
+      }
+      onTranscript(transcript)
+    }
+    return transcript
+  }
+
   private fun handleResults(results: Bundle?) {
-    val transcript = results.bestTranscript()
+    val transcript = SpeechCaptureSession.extractBestTranscript(results)
     if (transcript.isBlank()) return
     bestTranscript = transcript
     onTranscript(transcript)
     Log.d(TAG, "Post-wake transcript: $transcript")
-  }
-
-  private fun Bundle?.bestTranscript(): String {
-    val matches = this?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
-    return matches
-        .map { it.cleanTranscript() }
-        .filter { it.isNotBlank() }
-        .maxByOrNull { it.length }
-        .orEmpty()
-  }
-
-  private fun String.cleanTranscript(): String = trim().replace(Regex("\\s+"), " ")
-
-  private fun routeAudioForCommandListening(): Boolean {
-    return VoiceAudioEnvironment.routeSpeechInput(appContext, audioManager)
   }
 }
