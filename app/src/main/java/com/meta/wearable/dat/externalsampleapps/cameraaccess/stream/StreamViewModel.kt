@@ -19,7 +19,9 @@ package com.meta.wearable.dat.externalsampleapps.cameraaccess.stream
 
 import android.annotation.SuppressLint
 import android.app.Application
+import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
@@ -45,12 +47,17 @@ import com.meta.wearable.dat.core.session.DeviceSession
 import com.meta.wearable.dat.core.session.DeviceSessionState
 import com.meta.wearable.dat.core.types.DeviceSessionError
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.R
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.DocumentAnalysisResult
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.FaceRecognitionResult
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.FaceRecognitionService
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.ai.GeminiService
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.AssistantSpeechListener
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.ConversationRole
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.assistant.ConversationTurn
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.data.Customer
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.voice.GlassesSpeechEngine
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.voice.SpeakableText
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.voice.VoiceAudioEnvironment
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.wearables.WearablesViewModel
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -82,6 +89,8 @@ class StreamViewModel(
     private const val ENABLE_RAW_AUDIO_RECORDING = false
     private const val MAX_PARTIAL_RESPONSE_CHARS = 900
     private const val DOCUMENT_QA_MIC_HANDOFF_DELAY_MS = 400L
+    private const val POST_TTS_COOLDOWN_MS = 600L
+    private const val TTS_READY_TIMEOUT_MS = 3_000L
   }
 
   private enum class DocumentScanTrigger(
@@ -118,6 +127,7 @@ class StreamViewModel(
   private var documentQuestionSpeechListener: AssistantSpeechListener? = null
   private var documentQuestionStartJob: Job? = null
   private var documentSessionText: String? = null
+  private val glassesSpeechEngine = GlassesSpeechEngine(application)
   private var stream: Stream? = null
   private var audioStream: AudioStream? = null
   private var previousDeviceSessionState: DeviceSessionState? = null
@@ -320,6 +330,7 @@ class StreamViewModel(
     if (hasAudio) {
       _uiState.update { it.copy(isAudioPlaybackVisible = true) }
     }
+    glassesSpeechEngine.shutdown()
     onComplete(hasAudio)
   }
 
@@ -471,6 +482,58 @@ class StreamViewModel(
     }
   }
 
+  suspend fun speakQnaResponse(answer: String) {
+    pauseVoiceCommandsForAssistant()
+    speakOnGlasses(answer)
+    resumeVoiceCommandsAfterAssistant()
+  }
+
+  suspend fun speakCustomerWelcome(customer: Customer) {
+    pauseVoiceCommandsForAssistant()
+    if (!glassesSpeechEngine.waitUntilReady(TTS_READY_TIMEOUT_MS)) {
+      Log.w(TAG, "Skipping welcome TTS because engine is not ready")
+      return
+    }
+    awaitSpeechHandoff()
+    val spoken = glassesSpeechEngine.speak("Welcome back, ${customer.name}.")
+    if (spoken) {
+      delay(POST_TTS_COOLDOWN_MS)
+    } else {
+      Log.w(TAG, "Welcome TTS playback failed for customer ${customer.id}")
+    }
+  }
+
+  private suspend fun speakOnGlasses(text: String): Boolean {
+    if (!glassesSpeechEngine.waitUntilReady(TTS_READY_TIMEOUT_MS)) {
+      Log.w(TAG, "Skipping TTS because engine is not ready")
+      return false
+    }
+    awaitSpeechHandoff()
+    val spoken = SpeakableText.truncateToLines(text)
+    if (spoken.isBlank()) {
+      Log.w(TAG, "Skipping TTS because text is blank after truncation")
+      return false
+    }
+    val success = glassesSpeechEngine.speak(spoken)
+    if (success) {
+      delay(POST_TTS_COOLDOWN_MS)
+    } else {
+      Log.w(TAG, "TTS playback failed")
+    }
+    return success
+  }
+
+  private suspend fun awaitSpeechHandoff() {
+    glassesSpeechEngine.releaseCommunicationDevice()
+    delay(bluetoothHandoffDelayMs())
+  }
+
+  private fun bluetoothHandoffDelayMs(): Long {
+    val audioManager =
+        getApplication<Application>().getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    return VoiceAudioEnvironment.bluetoothHandoffDelayMs(getApplication(), audioManager)
+  }
+
   private fun stopVoiceCommandListener() {
     voiceCommandListener?.stop()
     voiceCommandListener = null
@@ -512,10 +575,12 @@ class StreamViewModel(
     Log.i(TAG, "Document session mic policy: hey-meta listener stopped")
     _uiState.update { it.copy(voiceCommandStatus = trigger.requestedStatus) }
     clearDocumentSession()
-    captureAndAnalyzeDocument()
+    viewModelScope.launch { captureAndAnalyzeDocument(trigger) }
   }
 
-  private fun captureAndAnalyzeDocument() {
+  private suspend fun captureAndAnalyzeDocument(
+      trigger: DocumentScanTrigger = DocumentScanTrigger.BUTTON,
+  ) {
     Log.i(TAG, "Document scan flow starting")
     if (uiState.value.streamState != StreamState.STREAMING) {
       Log.w(TAG, "Cannot scan document: stream not active (state=${uiState.value.streamState})")
@@ -552,6 +617,8 @@ class StreamViewModel(
           voiceCommandStatus = "Capturing document",
       )
     }
+
+    speakOnGlasses("Scanning the document now.")
 
     viewModelScope.launch(Dispatchers.IO) {
       var documentBitmap: Bitmap? = null
@@ -633,6 +700,12 @@ class StreamViewModel(
               documentQuestionStatus = "Ask a question about this document",
               voiceCommandStatus = "Document analyzed",
           )
+        }
+        val summaryForSpeech = extractDocumentSummaryForSpeech(analysis)
+        if (summaryForSpeech.isNotBlank()) {
+          speakOnGlasses(summaryForSpeech)
+        } else {
+          Log.w(TAG, "No document summary available for TTS")
         }
       } catch (e: Exception) {
         val totalDurationMs = SystemClock.elapsedRealtime() - scanStartedAtMs
@@ -831,6 +904,7 @@ class StreamViewModel(
                   it.documentConversation + ConversationTurn(ConversationRole.ASSISTANT, answer),
           )
         }
+        speakQnaResponse(answer)
       } catch (e: Exception) {
         Log.w(TAG, "Document question failed", e)
         _uiState.update {
@@ -874,6 +948,21 @@ class StreamViewModel(
     if (_uiState.value.streamState == StreamState.STREAMING && voiceCommandListener == null) {
       startVoiceCommandListener()
     }
+  }
+
+  private fun extractDocumentSummaryForSpeech(analysis: DocumentAnalysisResult): String {
+    val parsed = analysis.json ?: return ""
+    val summary = parsed.get("summary")?.asString?.trim().orEmpty()
+    if (summary.isNotBlank()) return summary
+    val explanation = parsed.get("explanation")?.asString?.trim().orEmpty()
+    if (explanation.isNotBlank()) {
+      return explanation.substringBefore('.').ifBlank { explanation }
+    }
+    val customerRelevance = parsed.get("customerRelevance")?.asString?.trim().orEmpty()
+    if (customerRelevance.isNotBlank()) {
+      return customerRelevance.substringBefore('.').ifBlank { customerRelevance }
+    }
+    return ""
   }
 
   fun showShareDialog() {
