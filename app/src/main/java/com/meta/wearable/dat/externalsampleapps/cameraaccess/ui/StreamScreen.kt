@@ -154,6 +154,9 @@ fun StreamScreen(
   var isStreamHudExpanded by remember { mutableStateOf(false) }
 
   LaunchedEffect(Unit) { streamViewModel.startStream() }
+  LaunchedEffect(Unit) {
+    assistantViewModel.onAnswerReady = { answer -> streamViewModel.speakQnaResponse(answer) }
+  }
   LaunchedEffect(streamUiState.matchedCustomer?.id) {
     streamUiState.matchedCustomer?.let { customer ->
       assistantViewModel.selectCustomer(customer)
@@ -162,7 +165,7 @@ fun StreamScreen(
         isAssistantVisible = true
         streamViewModel.pauseVoiceCommandsForAssistant()
         didPauseVoiceCommandsForAssistant = true
-        delay(250)
+        streamViewModel.speakCustomerWelcome(customer)
         assistantViewModel.startListening()
       }
     }
