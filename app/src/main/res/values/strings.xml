@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2" project="cameraaccess">
-    <string name="app_name" description="Application name">WF Meta</string>
+    <string name="app_name" description="Application name">WF</string>
 
     <!-- Home Screen -->
     <string name="register_button_title" description="Connect App">Connect my glasses</string>
@@ -23,7 +23,7 @@
     <!-- Non Stream Screen -->
     <string name="camera_access_icon_description" description="WF Meta icon description">WF Meta icon</string>
     <string name="non_stream_screen_description" description="Non stream screen description">Start a secure glasses stream for customer recognition, RM guidance, and document scan Q&amp;A.</string>
-    <string name="non_stream_screen_title" description="Non stream screen title">WF Meta readiness</string>
+    <string name="non_stream_screen_title" description="Non stream screen title">Branch of the Future</string>
     <string name="waiting_for_active_device" description="Waiting for active device message">Waiting for an active device</string>
     <string name="update_required_title" description="Update required warning title">Update required</string>
     <string name="update_required_firmware_message" description="Firmware update required warning">Your glasses firmware needs an update before WF Meta can start.</string>
