@@ -22,7 +22,9 @@ Meta glasses -> Bluetooth -> Android app
   retries once when simple heuristics identify a weak transcription.
 - `/chat` handles customer Q&A, the displayed document analysis, and document follow-up Q&A.
 - The document Q&A prompt contains the transcription, prior session turns, and current question.
-  The displayed summary is not used as evidence.
+  The transcription remains authoritative for document-specific facts, while clearly labelled general
+  banking knowledge may explain terms and adjacent banking topics. The displayed summary is not used
+  as evidence.
 - Android speech recognition and face matching remain on the phone.
 - The gateway and Ollama are loopback-only, authenticated, and have no cloud fallback.
 - Gemma 3 fits on the RTX 4060 for GPU inference. Python uses a small amount of CPU for the gateway,

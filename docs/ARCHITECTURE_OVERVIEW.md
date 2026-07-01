@@ -181,8 +181,15 @@ Each document question includes:
 - Up to eight prior document Q&A turns.
 - The current spoken question.
 
-The displayed summary is never used as evidence. The original image is not resent. Consequently,
-grounding quality is the evidence boundary for the entire document session.
+The displayed summary is never used as evidence and the original image is not resent. The
+transcription is therefore the evidence boundary for claims about what this specific document says.
+For definitions, concepts, formulas, typical implications, and adjacent banking questions, Gemma may
+also use general banking knowledge and labels it as general context. Prior Q&A turns provide
+conversation continuity but are not independent document evidence. A question is rejected only when
+it is unrelated to both the document and banking or finance.
+
+Personalized financial or legal guidance, current rates, and bank-specific policies receive general
+educational context with assumptions and a recommendation to verify the applicable document or bank.
 
 ## Customer Q&A
 

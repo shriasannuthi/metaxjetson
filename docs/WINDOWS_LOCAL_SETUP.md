@@ -335,11 +335,13 @@ The USB cable is now the only phone-to-laptop application data path. It does not
 8. Say **Hey Meta scan**.
 9. Confirm Gemma 3 returns a faithful text transcription rather than a general image description.
 10. Confirm the summary and explanation appear in the top result window.
-11. Ask a follow-up question whose answer is printed on the page.
-12. Confirm the answer is supported by the transcription.
-13. Repeat document scans with prose, a form, a receipt, and a table.
-14. Repeat customer Q&A and document Q&A after restarting the gateway.
-15. Confirm all flows work while every external network remains disabled.
+11. Ask a follow-up question whose answer is printed on the page and confirm it matches the transcription.
+12. Ask for the meaning of a banking term shown but not defined, such as EMI, and confirm the answer is labelled as general banking context.
+13. Ask for a document-specific value that is absent and confirm Gemma says what is missing rather than inventing it.
+14. Ask an unrelated question such as the weather and confirm it is rejected.
+15. Repeat document scans with prose, a form, a receipt, and a table.
+16. Repeat customer Q&A and document Q&A after restarting the gateway.
+17. Confirm all flows work while every external network remains disabled.
 
 ## Troubleshooting
 

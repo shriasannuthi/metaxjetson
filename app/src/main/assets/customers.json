@@ -1,384 +1,644 @@
 {
-  "customers": [
-    {
-      "id": "CUST001",
-      "name": "Rahul",
-      "phone": "9876543210",
-      "profile": "High-value salaried customer exploring a premium home loan, wealth advisory, and priority banking upgrade. Prefers quick summaries, low paperwork, and clear EMI comparisons.",
-      "faceImage": "rahul_face.png",
-      "lastVisit": "2026-06-10",
-      "accounts": [
-        {
-          "accountNumber": "XXXX-1024",
-          "type": "Premium Savings",
-          "balance": "INR 18,45,000",
-          "status": "Active"
+    "customers": [
+      {
+        "id": "CUST001",
+        "name": "Shria Sannuthi",
+        "phone": "+1-408-555-2198",
+        "profile": "Business owner running a premium specialty food business and preparing for US market expansion. Evaluating working capital renewal, overdraft enhancement, treasury optimization, and vendor payment automation. Also exploring education financing options for daughter's upcoming university admission. Prefers practical guidance, proactive financial advice, and document-ready next steps.",
+        "faceImage": "shria_face.png",
+        "bank": "Wells Fargo Bank",
+    
+        "lastVisit": "2026-06-19",
+    
+        "accounts": [
+          {
+            "accountNumber": "XXXX-2048",
+            "type": "Wells Fargo Premier Business Checking",
+            "balance": "USD 485,200",
+            "status": "Active"
+          },
+          {
+            "accountNumber": "XXXX-3478",
+            "type": "Wells Fargo BusinessLine Business Credit",
+            "balance": "Limit USD 300,000",
+            "status": "Renewal due in 45 days"
+          },
+          {
+            "accountNumber": "XXXX-9812",
+            "type": "Wells Fargo Business High Yield Savings",
+            "balance": "USD 128,750",
+            "status": "Active"
+          },
+          {
+            "accountNumber": "XXXX-5510",
+            "type": "Wells Fargo Edge Business Card",
+            "balance": "USD 14,320 / Limit USD 75,000",
+            "status": "Active, autopay enrolled"
+          }
+        ],
+    
+        "transactions": [
+          {
+            "id": "TXN-SS-001",
+            "date": "2026-06-20",
+            "description": "Customer receivable from enterprise buyer",
+            "category": "Receivable",
+            "amount": "USD 148,000",
+            "direction": "Credit",
+            "status": "Settled"
+          },
+          {
+            "id": "TXN-SS-002",
+            "date": "2026-06-18",
+            "description": "Vendor payment via Zelle Pay - packaging and logistics supplier",
+            "category": "Vendor payment",
+            "amount": "USD 92,500",
+            "direction": "Debit",
+            "status": "Settled"
+          },
+          {
+            "id": "TXN-SS-003",
+            "date": "2026-06-15",
+            "description": "Business payroll processing",
+            "category": "Payroll",
+            "amount": "USD 38,400",
+            "direction": "Debit",
+            "status": "Settled"
+          },
+          {
+            "id": "TXN-SS-004",
+            "date": "2026-06-12",
+            "description": "Wells Fargo Edge Business Card - trade show booth deposit",
+            "category": "Card purchase",
+            "amount": "USD 6,750",
+            "direction": "Debit",
+            "status": "Settled"
+          },
+          {
+            "id": "TXN-SS-005",
+            "date": "2026-06-08",
+            "description": "Zelle Pay instant transfer received from co-owner",
+            "category": "Transfer",
+            "amount": "USD 25,000",
+            "direction": "Credit",
+            "status": "Settled"
+          }
+        ],
+    
+        "history": [
+          {
+            "date": "2026-06-19",
+            "type": "Relationship meeting",
+            "notes": "Requested Wells Fargo BusinessLine renewal checklist, treasury optimization recommendations, and projected cash-flow template."
+          },
+          {
+            "date": "2026-06-10",
+            "type": "Financial planning session",
+            "notes": "Discussed LifeSync goal about daughter's upcoming university applications and explored Wells Fargo education loan options, co-borrower requirements, and repayment planning."
+          }
+        ],
+    
+        "goals": [
+          {
+            "category": "Business",
+            "objective": "Renew Wells Fargo BusinessLine business credit and improve cash-flow efficiency"
+          },
+          {
+            "category": "Family",
+            "objective": "Secure education financing for daughter's undergraduate degree starting Fall 2027 in Harvard University"
+          }
+        ],
+    
+        "educationLoanInterest": {
+          "borrower": "Daughter",
+          "purpose": "Undergraduate university education",
+          "targetAmount": "USD 180,000",
+          "status": "Researching options",
+          "preferences": [
+            "Flexible repayment",
+            "Parent co-borrower structure",
+            "Wells Fargo relationship pricing discount",
+            "Deferred payments during study period"
+          ]
         },
-        {
-          "accountNumber": "XXXX-7712",
-          "type": "Fixed Deposit",
-          "balance": "INR 7,50,000",
-          "status": "Matures on 2026-09-18"
-        }
-      ],
-      "transactions": [
-        {
-          "id": "TXN-RH-001",
-          "date": "2026-06-18",
-          "description": "Salary credit from Meta Platforms India",
-          "category": "Salary",
-          "amount": "INR 4,85,000",
-          "direction": "Credit",
-          "status": "Settled"
-        },
-        {
-          "id": "TXN-RH-002",
-          "date": "2026-06-15",
-          "description": "Monthly SIP - Balanced Advantage Fund",
-          "category": "Investment",
-          "amount": "INR 75,000",
-          "direction": "Debit",
-          "status": "Settled"
-        },
-        {
-          "id": "TXN-RH-003",
-          "date": "2026-06-12",
-          "description": "Property valuation fee",
-          "category": "Home loan",
-          "amount": "INR 9,500",
-          "direction": "Debit",
-          "status": "Settled"
-        }
-      ],
-      "history": [
-        {
-          "date": "2026-06-10",
-          "type": "Branch visit",
-          "notes": "Discussed home loan eligibility for INR 85 lakh property, premium banking upgrade, and salary account benefits. Asked for a side-by-side EMI estimate for 15 and 20 year tenure."
-        },
-        {
-          "date": "2026-05-28",
-          "type": "Relationship call",
-          "notes": "Requested pre-approved loan limits, processing fee waiver options, and document checklist for income proof and property papers."
-        }
-      ]
-    },
-    {
-      "id": "CUST002",
-      "name": "Anjan RD",
-      "phone": "9876543210",
-      "profile": "High-value salaried customer exploring a premium home loan, wealth advisory, and priority banking upgrade. Prefers quick summaries, low paperwork, and clear EMI comparisons.",
-      "faceImage": "anjan_face.png",
-      "lastVisit": "2026-06-10",
-      "accounts": [
-        {
-          "accountNumber": "XXXX-1024",
-          "type": "Premium Savings",
-          "balance": "INR 18,45,000",
-          "status": "Active"
-        },
-        {
-          "accountNumber": "XXXX-7712",
-          "type": "Fixed Deposit",
-          "balance": "INR 7,50,000",
-          "status": "Matures on 2026-09-18"
-        }
-      ],
-      "transactions": [
-        {
-          "id": "TXN-AR-001",
-          "date": "2026-06-18",
-          "description": "Salary credit from design consulting client",
-          "category": "Salary",
-          "amount": "INR 3,20,000",
-          "direction": "Credit",
-          "status": "Settled"
-        },
-        {
-          "id": "TXN-AR-002",
-          "date": "2026-06-16",
-          "description": "Rent payment",
-          "category": "Housing",
-          "amount": "INR 62,000",
-          "direction": "Debit",
-          "status": "Settled"
-        },
-        {
-          "id": "TXN-AR-003",
-          "date": "2026-06-13",
-          "description": "Credit card autopay",
-          "category": "Card payment",
-          "amount": "INR 1,18,450",
-          "direction": "Debit",
-          "status": "Settled"
-        }
-      ],
-      "history": [
-        {
-          "date": "2026-06-10",
-          "type": "Branch visit",
-          "notes": "Discussed home loan eligibility for INR 85 lakh property, premium banking upgrade, and salary account benefits. Asked for a side-by-side EMI estimate for 15 and 20 year tenure."
-        },
-        {
-          "date": "2026-05-28",
-          "type": "Relationship call",
-          "notes": "Requested pre-approved loan limits, processing fee waiver options, and document checklist for income proof and property papers."
-        }
-      ]
-    },
-    {
-      "id": "CUST003",
-      "name": "Elon Musk",
-      "phone": "9988776655",
-      "profile": "Ultra high-net-worth entrepreneur customer with treasury, investment, and liquidity management needs. Requires discreet service, rapid approvals, and consolidated portfolio snapshots.",
-      "faceImage": "musk_face.jpg",
-      "lastVisit": "2026-06-04",
-      "accounts": [
-        {
-          "accountNumber": "XXXX-2048",
-          "type": "Private Banking Current",
-          "balance": "INR 42,10,50,000",
-          "status": "Active"
-        },
-        {
-          "accountNumber": "XXXX-8821",
-          "type": "Investment Portfolio",
-          "balance": "INR 8,75,00,000",
-          "status": "Advisory review due"
-        }
-      ],
-      "transactions": [
-        {
-          "id": "TXN-EM-001",
-          "date": "2026-06-18",
-          "description": "Treasury sweep to overnight fund",
-          "category": "Treasury",
-          "amount": "INR 5,00,00,000",
-          "direction": "Debit",
-          "status": "Settled"
-        },
-        {
-          "id": "TXN-EM-002",
-          "date": "2026-06-17",
-          "description": "Portfolio dividend credit",
-          "category": "Investment income",
-          "amount": "INR 42,75,000",
-          "direction": "Credit",
-          "status": "Settled"
-        },
-        {
-          "id": "TXN-EM-003",
-          "date": "2026-06-14",
-          "description": "High-value outward transfer - senior approval completed",
-          "category": "Transfer",
-          "amount": "INR 2,25,00,000",
-          "direction": "Debit",
-          "status": "Approved"
-        }
-      ],
-      "history": [
-        {
-          "date": "2026-06-04",
-          "type": "Private banking review",
-          "notes": "Asked for liquidity planning across operating accounts, short-term debt instruments, and tax-efficient investment options."
-        },
-        {
-          "date": "2026-05-21",
-          "type": "Treasury discussion",
-          "notes": "Requested faster approval workflow for large transfers and a single-page risk summary before market close."
-        }
-      ]
-    },
-    {
-      "id": "CUST004",
-      "name": "Shria Sannuthi",
-      "phone": "+1-408-555-2198",
-      "profile": "Business owner running a premium specialty food business and preparing for US market expansion. Evaluating working capital renewal, overdraft enhancement, treasury optimization, and vendor payment automation. Also exploring education financing options for daughter's upcoming university admission. Prefers practical guidance, proactive financial advice, and document-ready next steps.",
-      "faceImage": "shria_face.png",
-      "bank": "Wells Fargo Bank",
-
-      "lastVisit": "2026-06-19",
-
-      "accounts": [
-        {
-          "accountNumber": "XXXX-2048",
-          "type": "Wells Fargo Premier Business Checking",
-          "balance": "USD 485,200",
-          "status": "Active"
-        },
-        {
-          "accountNumber": "XXXX-3478",
-          "type": "Wells Fargo BusinessLine Business Credit",
-          "balance": "Limit USD 300,000",
-          "status": "Renewal due in 45 days"
-        },
-        {
-          "accountNumber": "XXXX-9812",
-          "type": "Wells Fargo Business High Yield Savings",
-          "balance": "USD 128,750",
-          "status": "Active"
-        },
-        {
-          "accountNumber": "XXXX-5510",
-          "type": "Wells Fargo Edge Business Card",
-          "balance": "USD 14,320 / Limit USD 75,000",
-          "status": "Active, autopay enrolled"
-        }
-      ],
-
-      "transactions": [
-        {
-          "id": "TXN-SS-001",
-          "date": "2026-06-20",
-          "description": "Customer receivable from enterprise buyer",
-          "category": "Receivable",
-          "amount": "USD 148,000",
-          "direction": "Credit",
-          "status": "Settled"
-        },
-        {
-          "id": "TXN-SS-002",
-          "date": "2026-06-18",
-          "description": "Vendor payment via Zelle Pay - packaging and logistics supplier",
-          "category": "Vendor payment",
-          "amount": "USD 92,500",
-          "direction": "Debit",
-          "status": "Settled"
-        },
-        {
-          "id": "TXN-SS-003",
-          "date": "2026-06-15",
-          "description": "Business payroll processing",
-          "category": "Payroll",
-          "amount": "USD 38,400",
-          "direction": "Debit",
-          "status": "Settled"
-        },
-        {
-          "id": "TXN-SS-004",
-          "date": "2026-06-12",
-          "description": "Wells Fargo Edge Business Card - trade show booth deposit",
-          "category": "Card purchase",
-          "amount": "USD 6,750",
-          "direction": "Debit",
-          "status": "Settled"
-        },
-        {
-          "id": "TXN-SS-005",
-          "date": "2026-06-08",
-          "description": "Zelle Pay instant transfer received from co-owner",
-          "category": "Transfer",
-          "amount": "USD 25,000",
-          "direction": "Credit",
-          "status": "Settled"
-        }
-      ],
-
-      "history": [
-        {
-          "date": "2026-06-19",
-          "type": "Relationship meeting",
-          "notes": "Requested Wells Fargo BusinessLine renewal checklist, treasury optimization recommendations, and projected cash-flow template."
-        },
-        {
-          "date": "2026-06-10",
-          "type": "Financial planning session",
-          "notes": "Discussed LifeSync goal about daughter's upcoming university applications and explored Wells Fargo education loan options, co-borrower requirements, and repayment planning."
-        }
-      ],
-
-      "goals": [
-        {
-          "category": "Business",
-          "objective": "Renew Wells Fargo BusinessLine business credit and improve cash-flow efficiency"
-        },
-        {
-          "category": "Family",
-          "objective": "Secure education financing for daughter's undergraduate degree starting Fall 2027 in Harvard University"
-        }
-      ],
-
-      "educationLoanInterest": {
-        "borrower": "Daughter",
-        "purpose": "Undergraduate university education",
-        "targetAmount": "USD 180,000",
-        "status": "Researching options",
-        "preferences": [
-          "Flexible repayment",
-          "Parent co-borrower structure",
-          "Wells Fargo relationship pricing discount",
-          "Deferred payments during study period"
+    
+        "nextBestActions": [
+          "Initiate Wells Fargo BusinessLine renewal",
+          "Prepare Wells Fargo education loan prequalification package",
+          "Review cash-flow and debt capacity"
         ]
       },
-
-      "nextBestActions": [
-        "Initiate Wells Fargo BusinessLine renewal",
-        "Prepare Wells Fargo education loan prequalification package",
-        "Review cash-flow and debt capacity"
-      ]
-    },
-    {
-      "id": "CUST005",
-      "name": "Trump",
-      "phone": "993472687",
-      "profile": "High-profile customer with large real-estate, hospitality, and campaign-related banking needs. Requires enhanced due diligence, senior relationship handling, and careful compliance review.",
-      "faceImage": "trump_face.jpg",
-      "lastVisit": "2026-06-04",
-      "accounts": [
-        {
-          "accountNumber": "XXXX-2048",
-          "type": "Current",
-          "balance": "INR 3,42,10,500",
-          "status": "Active - enhanced monitoring"
+      {
+        "id": "CUST002",
+        "name": "Anjan Danda",
+        "phone": "+1-408-555-2198",
+        "profile": "Business owner running a premium specialty food business and preparing for US market expansion. Evaluating working capital renewal, overdraft enhancement, treasury optimization, and vendor payment automation. Also exploring education financing options for daughter's upcoming university admission. Prefers practical guidance, proactive financial advice, and document-ready next steps.",
+        "faceImage": "anjan_face.png",
+        "bank": "Wells Fargo Bank",
+    
+        "lastVisit": "2026-06-19",
+    
+        "accounts": [
+          {
+            "accountNumber": "XXXX-2048",
+            "type": "Wells Fargo Premier Business Checking",
+            "balance": "USD 485,200",
+            "status": "Active"
+          },
+          {
+            "accountNumber": "XXXX-3478",
+            "type": "Wells Fargo BusinessLine Business Credit",
+            "balance": "Limit USD 300,000",
+            "status": "Renewal due in 45 days"
+          },
+          {
+            "accountNumber": "XXXX-9812",
+            "type": "Wells Fargo Business High Yield Savings",
+            "balance": "USD 128,750",
+            "status": "Active"
+          },
+          {
+            "accountNumber": "XXXX-5510",
+            "type": "Wells Fargo Edge Business Card",
+            "balance": "USD 14,320 / Limit USD 75,000",
+            "status": "Active, autopay enrolled"
+          }
+        ],
+    
+        "transactions": [
+          {
+            "id": "TXN-SS-001",
+            "date": "2026-06-20",
+            "description": "Customer receivable from enterprise buyer",
+            "category": "Receivable",
+            "amount": "USD 148,000",
+            "direction": "Credit",
+            "status": "Settled"
+          },
+          {
+            "id": "TXN-SS-002",
+            "date": "2026-06-18",
+            "description": "Vendor payment via Zelle Pay - packaging and logistics supplier",
+            "category": "Vendor payment",
+            "amount": "USD 92,500",
+            "direction": "Debit",
+            "status": "Settled"
+          },
+          {
+            "id": "TXN-SS-003",
+            "date": "2026-06-15",
+            "description": "Business payroll processing",
+            "category": "Payroll",
+            "amount": "USD 38,400",
+            "direction": "Debit",
+            "status": "Settled"
+          },
+          {
+            "id": "TXN-SS-004",
+            "date": "2026-06-12",
+            "description": "Wells Fargo Edge Business Card - trade show booth deposit",
+            "category": "Card purchase",
+            "amount": "USD 6,750",
+            "direction": "Debit",
+            "status": "Settled"
+          },
+          {
+            "id": "TXN-SS-005",
+            "date": "2026-06-08",
+            "description": "Zelle Pay instant transfer received from co-owner",
+            "category": "Transfer",
+            "amount": "USD 25,000",
+            "direction": "Credit",
+            "status": "Settled"
+          }
+        ],
+    
+        "history": [
+          {
+            "date": "2026-06-19",
+            "type": "Relationship meeting",
+            "notes": "Requested Wells Fargo BusinessLine renewal checklist, treasury optimization recommendations, and projected cash-flow template."
+          },
+          {
+            "date": "2026-06-10",
+            "type": "Financial planning session",
+            "notes": "Discussed LifeSync goal about daughter's upcoming university applications and explored Wells Fargo education loan options, co-borrower requirements, and repayment planning."
+          }
+        ],
+    
+        "goals": [
+          {
+            "category": "Business",
+            "objective": "Renew Wells Fargo BusinessLine business credit and improve cash-flow efficiency"
+          },
+          {
+            "category": "Family",
+            "objective": "Secure education financing for daughter's undergraduate degree starting Fall 2027 in Harvard University"
+          }
+        ],
+    
+        "educationLoanInterest": {
+          "borrower": "Daughter",
+          "purpose": "Undergraduate university education",
+          "targetAmount": "USD 180,000",
+          "status": "Researching options",
+          "preferences": [
+            "Flexible repayment",
+            "Parent co-borrower structure",
+            "Wells Fargo relationship pricing discount",
+            "Deferred payments during study period"
+          ]
         },
-        {
-          "accountNumber": "XXXX-9090",
-          "type": "Term Loan",
-          "balance": "Outstanding INR 12,80,00,000",
-          "status": "Quarterly review pending"
-        }
-      ],
-      "transactions": [
-        {
-          "id": "TXN-DT-001",
-          "date": "2026-06-18",
-          "description": "Hospitality revenue deposit",
-          "category": "Business income",
-          "amount": "INR 1,85,00,000",
-          "direction": "Credit",
-          "status": "Settled"
+    
+        "nextBestActions": [
+          "Initiate Wells Fargo BusinessLine renewal",
+          "Prepare Wells Fargo education loan prequalification package",
+          "Review cash-flow and debt capacity"
+        ]
+      },
+      {
+        "id": "CUST003",
+        "name": "Rahul Prashant",
+        "phone": "+1-408-555-2198",
+        "profile": "Business owner running a premium specialty food business and preparing for US market expansion. Evaluating working capital renewal, overdraft enhancement, treasury optimization, and vendor payment automation. Also exploring education financing options for daughter's upcoming university admission. Prefers practical guidance, proactive financial advice, and document-ready next steps.",
+        "faceImage": "rahul_face.png",
+        "bank": "Wells Fargo Bank",
+    
+        "lastVisit": "2026-06-19",
+    
+        "accounts": [
+          {
+            "accountNumber": "XXXX-2048",
+            "type": "Wells Fargo Premier Business Checking",
+            "balance": "USD 485,200",
+            "status": "Active"
+          },
+          {
+            "accountNumber": "XXXX-3478",
+            "type": "Wells Fargo BusinessLine Business Credit",
+            "balance": "Limit USD 300,000",
+            "status": "Renewal due in 45 days"
+          },
+          {
+            "accountNumber": "XXXX-9812",
+            "type": "Wells Fargo Business High Yield Savings",
+            "balance": "USD 128,750",
+            "status": "Active"
+          },
+          {
+            "accountNumber": "XXXX-5510",
+            "type": "Wells Fargo Edge Business Card",
+            "balance": "USD 14,320 / Limit USD 75,000",
+            "status": "Active, autopay enrolled"
+          }
+        ],
+    
+        "transactions": [
+          {
+            "id": "TXN-SS-001",
+            "date": "2026-06-20",
+            "description": "Customer receivable from enterprise buyer",
+            "category": "Receivable",
+            "amount": "USD 148,000",
+            "direction": "Credit",
+            "status": "Settled"
+          },
+          {
+            "id": "TXN-SS-002",
+            "date": "2026-06-18",
+            "description": "Vendor payment via Zelle Pay - packaging and logistics supplier",
+            "category": "Vendor payment",
+            "amount": "USD 92,500",
+            "direction": "Debit",
+            "status": "Settled"
+          },
+          {
+            "id": "TXN-SS-003",
+            "date": "2026-06-15",
+            "description": "Business payroll processing",
+            "category": "Payroll",
+            "amount": "USD 38,400",
+            "direction": "Debit",
+            "status": "Settled"
+          },
+          {
+            "id": "TXN-SS-004",
+            "date": "2026-06-12",
+            "description": "Wells Fargo Edge Business Card - trade show booth deposit",
+            "category": "Card purchase",
+            "amount": "USD 6,750",
+            "direction": "Debit",
+            "status": "Settled"
+          },
+          {
+            "id": "TXN-SS-005",
+            "date": "2026-06-08",
+            "description": "Zelle Pay instant transfer received from co-owner",
+            "category": "Transfer",
+            "amount": "USD 25,000",
+            "direction": "Credit",
+            "status": "Settled"
+          }
+        ],
+    
+        "history": [
+          {
+            "date": "2026-06-19",
+            "type": "Relationship meeting",
+            "notes": "Requested Wells Fargo BusinessLine renewal checklist, treasury optimization recommendations, and projected cash-flow template."
+          },
+          {
+            "date": "2026-06-10",
+            "type": "Financial planning session",
+            "notes": "Discussed LifeSync goal about daughter's upcoming university applications and explored Wells Fargo education loan options, co-borrower requirements, and repayment planning."
+          }
+        ],
+    
+        "goals": [
+          {
+            "category": "Business",
+            "objective": "Renew Wells Fargo BusinessLine business credit and improve cash-flow efficiency"
+          },
+          {
+            "category": "Family",
+            "objective": "Secure education financing for daughter's undergraduate degree starting Fall 2027 in Harvard University"
+          }
+        ],
+    
+        "educationLoanInterest": {
+          "borrower": "Daughter",
+          "purpose": "Undergraduate university education",
+          "targetAmount": "USD 180,000",
+          "status": "Researching options",
+          "preferences": [
+            "Flexible repayment",
+            "Parent co-borrower structure",
+            "Wells Fargo relationship pricing discount",
+            "Deferred payments during study period"
+          ]
         },
-        {
-          "id": "TXN-DT-002",
-          "date": "2026-06-16",
-          "description": "Term loan scheduled repayment",
-          "category": "Loan repayment",
-          "amount": "INR 68,00,000",
-          "direction": "Debit",
-          "status": "Settled"
+    
+        "nextBestActions": [
+          "Initiate Wells Fargo BusinessLine renewal",
+          "Prepare Wells Fargo education loan prequalification package",
+          "Review cash-flow and debt capacity"
+        ]
+      },
+      {
+        "id": "CUST004",
+        "name": "Elon Musk",
+        "phone": "+1-408-555-2198",
+        "profile": "Business owner running a premium specialty food business and preparing for US market expansion. Evaluating working capital renewal, overdraft enhancement, treasury optimization, and vendor payment automation. Also exploring education financing options for daughter's upcoming university admission. Prefers practical guidance, proactive financial advice, and document-ready next steps.",
+        "faceImage": "musk_face.jpg",
+        "bank": "Wells Fargo Bank",
+    
+        "lastVisit": "2026-06-19",
+    
+        "accounts": [
+          {
+            "accountNumber": "XXXX-2048",
+            "type": "Wells Fargo Premier Business Checking",
+            "balance": "USD 485,200",
+            "status": "Active"
+          },
+          {
+            "accountNumber": "XXXX-3478",
+            "type": "Wells Fargo BusinessLine Business Credit",
+            "balance": "Limit USD 300,000",
+            "status": "Renewal due in 45 days"
+          },
+          {
+            "accountNumber": "XXXX-9812",
+            "type": "Wells Fargo Business High Yield Savings",
+            "balance": "USD 128,750",
+            "status": "Active"
+          },
+          {
+            "accountNumber": "XXXX-5510",
+            "type": "Wells Fargo Edge Business Card",
+            "balance": "USD 14,320 / Limit USD 75,000",
+            "status": "Active, autopay enrolled"
+          }
+        ],
+    
+        "transactions": [
+          {
+            "id": "TXN-SS-001",
+            "date": "2026-06-20",
+            "description": "Customer receivable from enterprise buyer",
+            "category": "Receivable",
+            "amount": "USD 148,000",
+            "direction": "Credit",
+            "status": "Settled"
+          },
+          {
+            "id": "TXN-SS-002",
+            "date": "2026-06-18",
+            "description": "Vendor payment via Zelle Pay - packaging and logistics supplier",
+            "category": "Vendor payment",
+            "amount": "USD 92,500",
+            "direction": "Debit",
+            "status": "Settled"
+          },
+          {
+            "id": "TXN-SS-003",
+            "date": "2026-06-15",
+            "description": "Business payroll processing",
+            "category": "Payroll",
+            "amount": "USD 38,400",
+            "direction": "Debit",
+            "status": "Settled"
+          },
+          {
+            "id": "TXN-SS-004",
+            "date": "2026-06-12",
+            "description": "Wells Fargo Edge Business Card - trade show booth deposit",
+            "category": "Card purchase",
+            "amount": "USD 6,750",
+            "direction": "Debit",
+            "status": "Settled"
+          },
+          {
+            "id": "TXN-SS-005",
+            "date": "2026-06-08",
+            "description": "Zelle Pay instant transfer received from co-owner",
+            "category": "Transfer",
+            "amount": "USD 25,000",
+            "direction": "Credit",
+            "status": "Settled"
+          }
+        ],
+    
+        "history": [
+          {
+            "date": "2026-06-19",
+            "type": "Relationship meeting",
+            "notes": "Requested Wells Fargo BusinessLine renewal checklist, treasury optimization recommendations, and projected cash-flow template."
+          },
+          {
+            "date": "2026-06-10",
+            "type": "Financial planning session",
+            "notes": "Discussed LifeSync goal about daughter's upcoming university applications and explored Wells Fargo education loan options, co-borrower requirements, and repayment planning."
+          }
+        ],
+    
+        "goals": [
+          {
+            "category": "Business",
+            "objective": "Renew Wells Fargo BusinessLine business credit and improve cash-flow efficiency"
+          },
+          {
+            "category": "Family",
+            "objective": "Secure education financing for daughter's undergraduate degree starting Fall 2027 in Harvard University"
+          }
+        ],
+    
+        "educationLoanInterest": {
+          "borrower": "Daughter",
+          "purpose": "Undergraduate university education",
+          "targetAmount": "USD 180,000",
+          "status": "Researching options",
+          "preferences": [
+            "Flexible repayment",
+            "Parent co-borrower structure",
+            "Wells Fargo relationship pricing discount",
+            "Deferred payments during study period"
+          ]
         },
-        {
-          "id": "TXN-DT-003",
-          "date": "2026-06-13",
-          "description": "Outward remittance review pending",
-          "category": "Compliance review",
-          "amount": "INR 2,10,00,000",
-          "direction": "Debit",
-          "status": "Pending senior approval"
-        }
-      ],
-      "history": [
-        {
-          "date": "2026-06-04",
-          "type": "Relationship review",
-          "notes": "Requested consolidated view of loan exposure, collateral status, and upcoming repayment schedule for real-estate linked facilities."
+    
+        "nextBestActions": [
+          "Initiate Wells Fargo BusinessLine renewal",
+          "Prepare Wells Fargo education loan prequalification package",
+          "Review cash-flow and debt capacity"
+        ]
+      },
+      {
+        "id": "CUST005",
+        "name": "Donald Trump",
+        "phone": "+1-408-555-2198",
+        "profile": "Business owner running a premium specialty food business and preparing for US market expansion. Evaluating working capital renewal, overdraft enhancement, treasury optimization, and vendor payment automation. Also exploring education financing options for daughter's upcoming university admission. Prefers practical guidance, proactive financial advice, and document-ready next steps.",
+        "faceImage": "trump_face.jpg",
+        "bank": "Wells Fargo Bank",
+    
+        "lastVisit": "2026-06-19",
+    
+        "accounts": [
+          {
+            "accountNumber": "XXXX-2048",
+            "type": "Wells Fargo Premier Business Checking",
+            "balance": "USD 485,200",
+            "status": "Active"
+          },
+          {
+            "accountNumber": "XXXX-3478",
+            "type": "Wells Fargo BusinessLine Business Credit",
+            "balance": "Limit USD 300,000",
+            "status": "Renewal due in 45 days"
+          },
+          {
+            "accountNumber": "XXXX-9812",
+            "type": "Wells Fargo Business High Yield Savings",
+            "balance": "USD 128,750",
+            "status": "Active"
+          },
+          {
+            "accountNumber": "XXXX-5510",
+            "type": "Wells Fargo Edge Business Card",
+            "balance": "USD 14,320 / Limit USD 75,000",
+            "status": "Active, autopay enrolled"
+          }
+        ],
+    
+        "transactions": [
+          {
+            "id": "TXN-SS-001",
+            "date": "2026-06-20",
+            "description": "Customer receivable from enterprise buyer",
+            "category": "Receivable",
+            "amount": "USD 148,000",
+            "direction": "Credit",
+            "status": "Settled"
+          },
+          {
+            "id": "TXN-SS-002",
+            "date": "2026-06-18",
+            "description": "Vendor payment via Zelle Pay - packaging and logistics supplier",
+            "category": "Vendor payment",
+            "amount": "USD 92,500",
+            "direction": "Debit",
+            "status": "Settled"
+          },
+          {
+            "id": "TXN-SS-003",
+            "date": "2026-06-15",
+            "description": "Business payroll processing",
+            "category": "Payroll",
+            "amount": "USD 38,400",
+            "direction": "Debit",
+            "status": "Settled"
+          },
+          {
+            "id": "TXN-SS-004",
+            "date": "2026-06-12",
+            "description": "Wells Fargo Edge Business Card - trade show booth deposit",
+            "category": "Card purchase",
+            "amount": "USD 6,750",
+            "direction": "Debit",
+            "status": "Settled"
+          },
+          {
+            "id": "TXN-SS-005",
+            "date": "2026-06-08",
+            "description": "Zelle Pay instant transfer received from co-owner",
+            "category": "Transfer",
+            "amount": "USD 25,000",
+            "direction": "Credit",
+            "status": "Settled"
+          }
+        ],
+    
+        "history": [
+          {
+            "date": "2026-06-19",
+            "type": "Relationship meeting",
+            "notes": "Requested Wells Fargo BusinessLine renewal checklist, treasury optimization recommendations, and projected cash-flow template."
+          },
+          {
+            "date": "2026-06-10",
+            "type": "Financial planning session",
+            "notes": "Discussed LifeSync goal about daughter's upcoming university applications and explored Wells Fargo education loan options, co-borrower requirements, and repayment planning."
+          }
+        ],
+    
+        "goals": [
+          {
+            "category": "Business",
+            "objective": "Renew Wells Fargo BusinessLine business credit and improve cash-flow efficiency"
+          },
+          {
+            "category": "Family",
+            "objective": "Secure education financing for daughter's undergraduate degree starting Fall 2027 in Harvard University"
+          }
+        ],
+    
+        "educationLoanInterest": {
+          "borrower": "Daughter",
+          "purpose": "Undergraduate university education",
+          "targetAmount": "USD 180,000",
+          "status": "Researching options",
+          "preferences": [
+            "Flexible repayment",
+            "Parent co-borrower structure",
+            "Wells Fargo relationship pricing discount",
+            "Deferred payments during study period"
+          ]
         },
-        {
-          "date": "2026-05-19",
-          "type": "Compliance note",
-          "notes": "Flagged for senior approval workflow before new credit sanction or high-value outward remittance."
-        }
-      ]
-    }
-  ]
+    
+        "nextBestActions": [
+          "Initiate Wells Fargo BusinessLine renewal",
+          "Prepare Wells Fargo education loan prequalification package",
+          "Review cash-flow and debt capacity"
+        ]
+      }
+    ]
 }
