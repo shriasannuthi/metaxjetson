@@ -36,4 +36,10 @@ data class WearablesUiState(
   val isRegistering: Boolean = registrationState == RegistrationState.REGISTERING
 
   val canStartRegistration: Boolean = canRegister && !isRegistering
+
+  val isUpdateRequired: Boolean = isFirmwareUpdateRequired || isDatAppUpdateRequired
+
+  // A DAT app update is confirmed by retrying the session after returning from Meta AI. Firmware
+  // incompatibility remains a hard block because it comes from live device compatibility metadata.
+  val canStartStreaming: Boolean = hasActiveDevice && !isFirmwareUpdateRequired
 }

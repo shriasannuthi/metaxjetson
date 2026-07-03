@@ -8,6 +8,7 @@
     <string name="update_firmware_button_title" description="Open firmware update">Update firmware</string>
     <string name="update_dat_app_button_title" description="Open DAT app update on glasses">Update app on glasses</string>
     <string name="stream_button_title" description="Start streaming">Start streaming</string>
+    <string name="retry_stream_button_title" description="Retry streaming after DAT app update">Retry streaming</string>
     <string name="stop_stream_button_title" description="Stop streaming">Stop streaming</string>
     <string name="home_tip_video_title" description="Tip title about video capture">Live customer view</string>
     <string name="home_tip_audio_title" description="Tip title about audio">Voice-assisted service</string>
@@ -27,8 +28,8 @@
     <string name="waiting_for_active_device" description="Waiting for active device message">Waiting for an active device</string>
     <string name="update_required_title" description="Update required warning title">Update required</string>
     <string name="update_required_firmware_message" description="Firmware update required warning">Your glasses firmware needs an update before WF Meta can start.</string>
-    <string name="update_required_dat_app_message" description="DAT app update required warning">The app on your glasses needs an update before WF Meta can start.</string>
-    <string name="update_required_both_message" description="Firmware and DAT app update required warning">Your glasses firmware and app need updates before WF Meta can start.</string>
+    <string name="update_required_dat_app_message" description="DAT app update required warning">Complete the glasses app update in Meta AI, return here, then retry streaming.</string>
+    <string name="update_required_both_message" description="Firmware and DAT app update required warning">Complete the firmware and glasses app updates in Meta AI, then return here.</string>
 
     <!-- SharePhotoDialog -->
     <string name="photo_captured" description="Photo Captured">Photo Captured</string>

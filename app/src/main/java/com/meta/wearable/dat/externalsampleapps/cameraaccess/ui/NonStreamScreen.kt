@@ -84,7 +84,6 @@ fun NonStreamScreen(
   val scope = rememberCoroutineScope()
   var dropdownExpanded by remember { mutableStateOf(false) }
   val isDisconnectEnabled = uiState.registrationState == RegistrationState.REGISTERED
-  val isUpdateRequired = uiState.isFirmwareUpdateRequired || uiState.isDatAppUpdateRequired
   val activity = LocalActivity.current
   val context = LocalContext.current
 
@@ -150,7 +149,7 @@ fun NonStreamScreen(
         )
         DeviceReadinessCard(
             hasActiveDevice = uiState.hasActiveDevice,
-            isUpdateRequired = isUpdateRequired,
+            isUpdateRequired = uiState.isUpdateRequired,
             modifier = Modifier.padding(top = 12.dp),
         )
       }
@@ -171,7 +170,7 @@ fun NonStreamScreen(
           )
         }
 
-        if (isUpdateRequired) {
+        if (uiState.isUpdateRequired) {
           UpdateRequiredMessage(
               showFirmwareUpdate = uiState.isFirmwareUpdateRequired,
               showDatAppUpdate = uiState.isDatAppUpdateRequired,
@@ -200,9 +199,9 @@ fun NonStreamScreen(
 
         // Start Streaming Button
         SwitchButton(
-            label = stringResource(R.string.stream_button_title),
+            label = stringResource(streamActionLabel(uiState.isDatAppUpdateRequired)),
             onClick = { viewModel.navigateToStreaming(onRequestWearablesPermission) },
-            enabled = uiState.hasActiveDevice && !isUpdateRequired,
+            enabled = uiState.canStartStreaming,
         )
       }
 
@@ -225,6 +224,13 @@ fun NonStreamScreen(
     }
   }
 }
+
+internal fun streamActionLabel(isDatAppUpdateRequired: Boolean): Int =
+    if (isDatAppUpdateRequired) {
+      R.string.retry_stream_button_title
+    } else {
+      R.string.stream_button_title
+    }
 
 @Composable
 private fun DeviceReadinessCard(

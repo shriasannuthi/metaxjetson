@@ -59,6 +59,7 @@ import com.meta.wearable.dat.externalsampleapps.cameraaccess.voice.GlassesSpeech
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.voice.SpeakableText
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.voice.VoiceAudioEnvironment
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.wearables.WearablesViewModel
+import com.meta.wearable.dat.externalsampleapps.cameraaccess.wearables.WearablesUpdatePolicy
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -209,7 +210,9 @@ class StreamViewModel(
         previousDeviceSessionState = currentState
 
         if (currentState == DeviceSessionState.STARTED) {
-          wearablesViewModel.setDatAppUpdateRequired(false)
+          if (WearablesUpdatePolicy.clearsDatAppUpdate(currentState)) {
+            wearablesViewModel.setDatAppUpdateRequired(false)
+          }
           if (prevState == DeviceSessionState.PAUSED && stream != null) {
             // PAUSED → STARTED: device-initiated resume (tap gesture).
             // The SDK handles resume internally via requestCameraOn() → resumeStreaming().
@@ -349,43 +352,16 @@ class StreamViewModel(
   }
 
   private fun handleSessionError(error: DeviceSessionError) {
-    Log.e(TAG, "Session error: ${error.description}")
-    val alreadyShowingUpdateRequired =
-        wearablesViewModel.uiState.value.isFirmwareUpdateRequired ||
-            wearablesViewModel.uiState.value.isDatAppUpdateRequired
-
-    if (
-        error == DeviceSessionError.SESSION_ENDED_BY_DEVICE &&
-            shouldTreatSessionEndedAsDatAppUpdateRequired()
-    ) {
-      wearablesViewModel.setDatAppUpdateRequired(true)
-      wearablesViewModel.setRecentError(
-          getApplication<Application>().getString(R.string.update_required_dat_app_message)
-      )
-      stopStream()
-      wearablesViewModel.navigateToDeviceSelection()
-      return
-    }
-
-    if (alreadyShowingUpdateRequired && error == DeviceSessionError.SESSION_ENDED_BY_DEVICE) {
-      stopStream()
-      wearablesViewModel.navigateToDeviceSelection()
-      return
-    }
-
-    if (error == DeviceSessionError.DAT_APP_ON_THE_GLASSES_UPDATE_REQUIRED) {
+    Log.e(
+        TAG,
+        "Session error: type=$error, lastState=$previousDeviceSessionState, description=${error.description}",
+    )
+    if (WearablesUpdatePolicy.requiresDatAppUpdate(error)) {
       wearablesViewModel.setDatAppUpdateRequired(true)
     }
     wearablesViewModel.setRecentError(error.description)
     stopStream()
     wearablesViewModel.navigateToDeviceSelection()
-  }
-
-  private fun shouldTreatSessionEndedAsDatAppUpdateRequired(): Boolean {
-    val sessionNeverStarted =
-        previousDeviceSessionState != DeviceSessionState.STARTED &&
-            previousDeviceSessionState != DeviceSessionState.PAUSED
-    return sessionNeverStarted
   }
 
   fun capturePhoto() {
