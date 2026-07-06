@@ -1,0 +1,20 @@
+[Unit]
+Description=MetaX resilient Android ADB reverse manager
+After=metax-gateway.service
+Wants=metax-gateway.service
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+Group=@SERVICE_GROUP@
+ExecStart=@REPO_ROOT@/inference_server/adb_reverse_manager.sh
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@USER_HOME@/.android
+
+[Install]
+WantedBy=multi-user.target

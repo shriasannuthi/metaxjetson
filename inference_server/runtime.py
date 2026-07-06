@@ -68,6 +68,9 @@ If absolutely no text is readable, return exactly NO_READABLE_TEXT.
 NO_READABLE_TEXT = "NO_READABLE_TEXT"
 GROUND_MAX_OUTPUT_TOKENS = 4096
 GROUNDING_TARGET_LONG_EDGE = 2000
+GROUNDING_ATTEMPT_TIMEOUT_SECONDS = 110.0
+GROUNDING_TOTAL_TIMEOUT_SECONDS = 115.0
+DEFAULT_MODEL = "gemma3:4b-it-q4_K_M"
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +87,8 @@ class NoReadableDocumentTextError(RuntimeError):
 class Settings:
     token: str
     ollama_url: str = "http://127.0.0.1:11434"
-    model: str = "qwen3-vl:8b"
-    context_length: int = 8192
+    model: str = DEFAULT_MODEL
+    context_length: int = 4096
     max_image_bytes: int = 12 * 1024 * 1024
     max_image_pixels: int = 24_000_000
 
@@ -94,8 +97,8 @@ class Settings:
         return cls(
             token=os.getenv("LOCAL_AI_TOKEN", "").strip(),
             ollama_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/"),
-            model=os.getenv("OLLAMA_MODEL", "qwen3-vl:8b").strip(),
-            context_length=int(os.getenv("OLLAMA_CONTEXT_LENGTH", "8192")),
+            model=os.getenv("OLLAMA_MODEL", DEFAULT_MODEL).strip(),
+            context_length=int(os.getenv("OLLAMA_CONTEXT_LENGTH", "4096")),
         )
 
 
@@ -304,22 +307,39 @@ class LocalAiRuntime:
         except (UnidentifiedImageError, OSError) as exc:
             raise ValueError("File is not a valid JPEG or PNG image") from exc
 
-        async with self.model_lock:
-            text = await self.ollama.chat(
-                DOCUMENT_TRANSCRIPTION_PROMPT,
-                "text",
-                GROUND_MAX_OUTPUT_TOKENS,
-                image_bytes=enhanced_image_bytes,
-            )
-            weakness = weak_grounding_reason(text)
-            if weakness is not None:
-                logger.info("Retrying document grounding once: %s", weakness)
-                text = await self.ollama.chat(
-                    DOCUMENT_TRANSCRIPTION_RETRY_PROMPT,
-                    "text",
-                    GROUND_MAX_OUTPUT_TOKENS,
-                    image_bytes=enhanced_image_bytes,
+        async def run_grounding_attempts() -> str:
+            async with self.model_lock:
+                text = await asyncio.wait_for(
+                    self.ollama.chat(
+                        DOCUMENT_TRANSCRIPTION_PROMPT,
+                        "text",
+                        GROUND_MAX_OUTPUT_TOKENS,
+                        image_bytes=enhanced_image_bytes,
+                    ),
+                    timeout=GROUNDING_ATTEMPT_TIMEOUT_SECONDS,
                 )
+                weakness = weak_grounding_reason(text)
+                if weakness is not None:
+                    logger.info("Retrying document grounding once: %s", weakness)
+                    text = await asyncio.wait_for(
+                        self.ollama.chat(
+                            DOCUMENT_TRANSCRIPTION_RETRY_PROMPT,
+                            "text",
+                            GROUND_MAX_OUTPUT_TOKENS,
+                            image_bytes=enhanced_image_bytes,
+                        ),
+                        timeout=GROUNDING_ATTEMPT_TIMEOUT_SECONDS,
+                    )
+                return text
+
+        try:
+            text = await asyncio.wait_for(
+                run_grounding_attempts(), timeout=GROUNDING_TOTAL_TIMEOUT_SECONDS
+            )
+        except (TimeoutError, asyncio.TimeoutError) as exc:
+            raise LocalAiRuntimeError(
+                "Jetson document inference exceeded the local grounding time budget"
+            ) from exc
 
         if is_no_readable_text(text):
             raise NoReadableDocumentTextError("No readable text was found in the document image")

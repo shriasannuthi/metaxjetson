@@ -2,16 +2,17 @@
 param(
   [Parameter(Mandatory = $true)]
   [ValidatePattern('^http://.+:\d+$')]
-  [string]$BaseUrl
+  [string]$BaseUrl,
+  [string]$EnvFile
 )
 
 $ErrorActionPreference = "Stop"
 $ServerDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent $ServerDir
-$EnvFile = Join-Path $ServerDir ".env"
+if (-not $EnvFile) { $EnvFile = Join-Path $ServerDir ".env" }
 $LocalProperties = Join-Path $RepoRoot "local.properties"
 
-if (-not (Test-Path $EnvFile)) { throw "Run setup_windows.ps1 first; .env is missing." }
+if (-not (Test-Path $EnvFile)) { throw "Jetson environment file '$EnvFile' was not found. Copy it securely from the Jetson or pass -EnvFile <path>." }
 $tokenLine = Get-Content -LiteralPath $EnvFile | Where-Object { $_ -like 'LOCAL_AI_TOKEN=*' } | Select-Object -First 1
 if (-not $tokenLine) { throw "LOCAL_AI_TOKEN is missing from inference_server\.env." }
 $token = $tokenLine.Substring('LOCAL_AI_TOKEN='.Length)

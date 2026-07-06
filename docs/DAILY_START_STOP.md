@@ -1,202 +1,52 @@
-# Daily Start and Complete Shutdown
+# Jetson daily operation
 
-Use this only after completing [WINDOWS_LOCAL_SETUP.md](WINDOWS_LOCAL_SETUP.md), installing the
-current Android app, and successfully testing customer Q&A and Gemma 3 document transcription.
+## Start
 
-## What Must Stay Connected
+1. Power the actively cooled Jetson and wait for boot.
+2. Connect the unlocked, USB-debug-enabled phone with its data cable.
+3. Accept the Jetson RSA prompt if Android asks.
+4. Verify readiness:
 
-- Laptop charger.
-- Data-capable USB cable between phone and laptop.
-- Bluetooth between phone and Meta glasses.
-- PowerShell window running `start_local_ai.ps1 -UsbOnly`.
-- Ollama in the Windows system tray.
-
-Wi-Fi, Ethernet, cellular data, Mobile Hotspot, and USB tethering remain off.
-
-## Switch On
-
-### 1. Prepare the laptop
-
-1. Connect the charger.
-2. Unplug Ethernet.
-3. Open Windows Quick Settings and turn Wi-Fi off.
-4. Open **Settings > Network & internet > Mobile hotspot** and confirm it is off.
-5. Confirm **Power mode** is **Best performance**.
-
-### 2. Prepare the phone and glasses
-
-1. Connect the phone with the data-capable USB cable.
-2. Unlock the phone.
-3. Approve **Allow USB debugging?** if prompted.
-4. Enable airplane mode.
-5. Confirm Wi-Fi and cellular data are off.
-6. Manually enable Bluetooth.
-7. Confirm the glasses connect.
-8. Confirm USB tethering is off.
-
-### 3. Start Ollama
-
-1. Open Start and search for **Ollama**.
-2. Open it.
-3. Confirm the Ollama icon appears in the system tray.
-4. Do not sign in or select a cloud model.
-
-### 4. Start the USB gateway
-
-1. Open the repository folder in File Explorer.
-2. Right-click an empty area and select **Open in Terminal**.
-3. Run:
-
-   ```powershell
-   Set-ExecutionPolicy -Scope Process Bypass
-   .\inference_server\start_local_ai.ps1 -UsbOnly
+   ```bash
+   systemctl is-active ollama metax-gateway metax-adb-reverse
+   curl http://127.0.0.1:8000/health
+   adb reverse --list
+   ollama ps
    ```
 
-4. Wait while the script checks the phone, creates the USB mapping, preloads Gemma 3 into GPU
-   memory, and starts FastAPI.
-5. Confirm it prints:
+`/health` must report `ready` and the configured model. `ollama ps` must report `100% GPU`. The reverse list must contain `tcp:8000 tcp:8000`. Open `http://127.0.0.1:8000/health` on the phone, then use the Android app.
 
-   ```text
-   ADB reverse tunnel: phone tcp:8000 -> laptop tcp:8000
-   Phone health URL: http://127.0.0.1:8000/health
-   Gateway bind address: 127.0.0.1:8000
-   ```
+No laptop, terminal window, network connection, or USB tethering is required at runtime.
 
-6. Keep this terminal open.
+## Cable and authorization recovery
 
-### 5. Confirm readiness
+The ADB service automatically handles ordinary disconnects. If it does not recover:
 
-1. Open Chrome on the phone.
-2. Open `http://127.0.0.1:8000/health`.
-3. Confirm `status`, `gateway`, `chat`, and `ground` say `ready`, and `model` says
-   `gemma3:4b-it-q4_K_M`.
-4. Close Chrome.
-5. Open the Meta glasses app and start streaming.
-
-The system is ready for customer Q&A and document scans.
-
-## While Running
-
-- Keep the gateway terminal open and USB connected.
-- Keep phone Bluetooth enabled.
-- Do not enable USB tethering or start an Android emulator.
-- Do not quit Ollama.
-- Gemma 3 handles text and image inference on the RTX 4060.
-- The Python gateway uses only light CPU for requests and image validation.
-- Fill the glasses view with the document and avoid motion, low light, and glare.
-
-## Normal Complete Shutdown
-
-### 1. Stop the Android activity
-
-1. Tap **End** if a document session is open.
-2. Tap **Stop streaming**.
-3. Return to the phone home screen.
-4. Open recent apps and swipe the app away.
-
-### 2. Stop FastAPI and remove the USB mapping
-
-1. Return to the PowerShell window running the gateway.
-2. Press `Ctrl+C` once.
-3. Wait for the normal PowerShell prompt.
-4. Confirm it prints `USB reverse tunnel removed.`
-
-The Python gateway is now stopped. No model runs inside Python.
-
-### 3. Unload Gemma 3 from the GPU
-
-Run:
-
-```powershell
-ollama stop gemma3:4b-it-q4_K_M
-ollama ps
+```bash
+journalctl -u metax-adb-reverse -n 50 --no-pager
+adb devices -l
 ```
 
-Confirm `ollama ps` shows only headings and no loaded model.
+Disconnect extra phones. For `unauthorized`, unlock the intended phone and approve the prompt. For `offline`, reconnect the data cable. Do not replace the loopback binds with LAN addresses.
 
-### 4. Quit Ollama
+## Service and model recovery
 
-1. Find the Ollama system-tray icon.
-2. Right-click it.
-3. Select **Quit Ollama** or **Quit**.
-
-### 5. Stop ADB
-
-Run:
-
-```powershell
-& "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" kill-server
+```bash
+sudo systemctl restart ollama metax-gateway metax-adb-reverse
+journalctl -u ollama -u metax-gateway -u metax-adb-reverse -n 100 --no-pager
+bash inference_server/verify_jetson.sh
 ```
 
-Close PowerShell and Android Studio, then unplug the phone.
+To intentionally change models, edit only ignored `inference_server/.env`, run `ollama pull <model>`, restart the gateway, and repeat the full device acceptance suite. The supported default remains `gemma3:4b-it-q4_K_M`.
 
-### 6. Optional device shutdown
+## Stop and offline use
 
-1. Disable phone Bluetooth if the glasses are no longer needed.
-2. Power off or store the glasses normally.
-3. Leave airplane mode enabled if the phone must stay isolated.
-
-## Verify Everything Stopped
-
-### Processes
-
-```powershell
-Get-Process python,ollama,adb -ErrorAction SilentlyContinue
+```bash
+sudo systemctl stop metax-adb-reverse metax-gateway ollama
 ```
 
-No process belonging to this system should appear.
+Normal power-off is `sudo poweroff`. After provisioning, disconnect networking; all inference and application behavior remains local.
 
-### Ports
+## Rollback
 
-```powershell
-Get-NetTCPConnection -LocalPort 8000,11434 -State Listen -ErrorAction SilentlyContinue
-```
-
-No result means FastAPI and Ollama are no longer listening.
-
-### GPU
-
-```powershell
-nvidia-smi
-```
-
-`ollama.exe` must not appear. Windows applications may still use unrelated GPU memory.
-
-## Emergency Cleanup
-
-Use this only when normal shutdown fails.
-
-1. Open PowerShell.
-2. Find and stop only the process listening on port 8000:
-
-   ```powershell
-   $gateway = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue
-   $gateway | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
-   ```
-
-3. Remove the USB rule and stop ADB:
-
-   ```powershell
-   & "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" reverse --remove tcp:8000
-   & "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" kill-server
-   ```
-
-4. Unload Gemma 3:
-
-   ```powershell
-   ollama stop gemma3:4b-it-q4_K_M
-   ```
-
-5. Quit Ollama from the system tray.
-6. Repeat the process, port, and GPU checks above.
-
-## After a USB Disconnect
-
-1. Stop the old gateway with `Ctrl+C` if it is still running.
-2. Reconnect and unlock the phone.
-3. Approve USB debugging if prompted.
-4. Run again:
-
-   ```powershell
-   .\inference_server\start_local_ai.ps1 -UsbOnly
-   ```
+Keep the previous repository revision and `.env` backup locally. To roll back code, restore that known revision without touching face assets or the secret, rerun `bash inference_server/setup_jetson.sh`, and repeat validation. Never roll back by exposing either service, enabling cloud AI, or changing Meta DAT from 0.7.0.

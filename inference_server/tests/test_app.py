@@ -13,6 +13,8 @@ from inference_server.runtime import (
     DOCUMENT_TRANSCRIPTION_RETRY_PROMPT,
     DOCUMENT_TRANSCRIPTION_PROMPT,
     GROUND_MAX_OUTPUT_TOKENS,
+    GROUNDING_ATTEMPT_TIMEOUT_SECONDS,
+    GROUNDING_TOTAL_TIMEOUT_SECONDS,
     LocalAiRuntime,
     LocalAiRuntimeError,
     NoReadableDocumentTextError,
@@ -98,7 +100,9 @@ def make_image(
 
 def test_settings_default_model_and_environment_override(monkeypatch):
     monkeypatch.delenv("OLLAMA_MODEL", raising=False)
-    assert Settings.from_environment().model == "qwen3-vl:8b"
+    monkeypatch.delenv("OLLAMA_CONTEXT_LENGTH", raising=False)
+    assert Settings.from_environment().model == "gemma3:4b-it-q4_K_M"
+    assert Settings.from_environment().context_length == 4096
 
     monkeypatch.setenv("OLLAMA_MODEL", "custom-local-vision:latest")
     assert Settings.from_environment().model == "custom-local-vision:latest"
@@ -348,6 +352,28 @@ def test_runtime_never_exceeds_two_grounding_attempts():
     assert len(ollama.calls) == 2
 
 
+def test_grounding_deadlines_fit_inside_android_call_budget():
+    assert GROUNDING_ATTEMPT_TIMEOUT_SECONDS == 110.0
+    assert GROUNDING_TOTAL_TIMEOUT_SECONDS == 115.0
+    assert GROUNDING_ATTEMPT_TIMEOUT_SECONDS < GROUNDING_TOTAL_TIMEOUT_SECONDS
+    assert GROUNDING_TOTAL_TIMEOUT_SECONDS < 130.0
+
+
+def test_grounding_attempt_timeout_becomes_local_runtime_error(monkeypatch):
+    class SlowOllama(FakeOllama):
+        async def chat(self, *args, **kwargs):
+            await asyncio.sleep(0.05)
+            return "late"
+
+    monkeypatch.setattr("inference_server.runtime.GROUNDING_ATTEMPT_TIMEOUT_SECONDS", 0.001)
+    runtime = LocalAiRuntime(Settings(token="secret"), ollama=SlowOllama())
+    try:
+        asyncio.run(runtime.ground(make_image()))
+        raise AssertionError("Expected grounding timeout")
+    except LocalAiRuntimeError as exc:
+        assert "time budget" in str(exc)
+
+
 def test_runtime_rejects_malformed_image_before_calling_gemma():
     ollama = FakeOllama()
     runtime = LocalAiRuntime(Settings(token="secret"), ollama=ollama)
@@ -365,9 +391,9 @@ def test_runtime_configuration_contains_no_legacy_paddle_dependencies():
         root / "inference_server" / "runtime.py",
         root / "inference_server" / "requirements.txt",
         root / "inference_server" / ".env.example",
-        root / "inference_server" / "setup_windows.ps1",
+        root / "inference_server" / "setup_jetson.sh",
         root / "inference_server" / "preload.py",
-        root / "inference_server" / "start_local_ai.ps1",
+        root / "inference_server" / "verify_jetson.sh",
     ]
     forbidden = ["paddleocr", "paddlepaddle", "pp-ocr", "ocr_detection_model"]
     for path in checked_files:
@@ -375,17 +401,49 @@ def test_runtime_configuration_contains_no_legacy_paddle_dependencies():
         assert not any(term in content for term in forbidden), path
 
 
-def test_scripts_and_config_use_new_model_without_old_pull_or_preload_references():
+def test_scripts_and_config_use_canonical_configurable_jetson_model():
     root = Path(__file__).resolve().parents[2]
     paths = [
         root / "inference_server" / "runtime.py",
         root / "inference_server" / ".env.example",
-        root / "inference_server" / "setup_windows.ps1",
-        root / "inference_server" / "start_local_ai.ps1",
+        root / "inference_server" / "setup_jetson.sh",
+        root / "inference_server" / "verify_jetson.sh",
     ]
-    old_model = "gemma3:" + "4b-it-q4_K_M"
     combined = "\n".join(path.read_text(encoding="utf-8") for path in paths)
-    assert "qwen3-vl:8b" in combined
-    assert old_model not in combined
-    assert "ollama pull $Model" in combined
-    assert "model = $Model" in combined
+    assert "gemma3:4b-it-q4_K_M" in combined
+    assert "qwen3-vl:8b" not in combined
+    assert 'ollama pull "$MODEL"' in combined
+    assert "OLLAMA_MODEL" in combined
+
+
+def test_jetson_services_are_loopback_only_and_hardened():
+    root = Path(__file__).resolve().parents[2]
+    systemd = root / "inference_server" / "systemd"
+    gateway = (systemd / "metax-gateway.service").read_text(encoding="utf-8")
+    ollama = (systemd / "ollama-loopback.conf").read_text(encoding="utf-8")
+    adb = (systemd / "metax-adb-reverse.service").read_text(encoding="utf-8")
+    assert "--host 127.0.0.1" in gateway
+    assert "OLLAMA_HOST=127.0.0.1:11434" in ollama
+    assert "NoNewPrivileges=true" in gateway and "ProtectSystem=strict" in gateway
+    assert "NoNewPrivileges=true" in adb and "Restart=always" in adb
+    assert "ReadWritePaths=@USER_HOME@/.android" in adb
+
+
+def test_jetson_setup_enforces_hardware_credentials_and_gpu_validation():
+    root = Path(__file__).resolve().parents[2]
+    setup = (root / "inference_server" / "setup_jetson.sh").read_text(encoding="utf-8")
+    verify = (root / "inference_server" / "verify_jetson.sh").read_text(encoding="utf-8")
+    for expected in ("aarch64", "p3767-0003", "30GB", "25W", "chmod 600"):
+        assert expected in setup
+    assert "100% GPU" in verify
+    assert "tegrastats" in verify
+    assert "image-input probe" in verify
+
+
+def test_adb_manager_requires_one_phone_and_recovers_reverse_rule():
+    root = Path(__file__).resolve().parents[2]
+    manager = (root / "inference_server" / "adb_reverse_manager.sh").read_text(encoding="utf-8")
+    assert "unauthorized" not in manager  # all non-device states fail closed
+    assert "more than one authorized physical Android phone" in manager
+    assert 'reverse "tcp:${PORT}" "tcp:${PORT}"' in manager
+    assert "while true" in manager

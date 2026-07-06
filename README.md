@@ -1,88 +1,42 @@
-# Local Meta Glasses Assistant
+# Meta glasses banking assistant — Jetson local inference
 
-An Android application for Meta glasses whose runtime AI processing stays on a local Windows
-laptop. The phone and laptop communicate over a USB cable using ADB reverse forwarding, so Wi-Fi,
-Ethernet, cellular data, hotspots, and USB tethering are unnecessary during operation.
-
-## Current Architecture
+All AI inference runs locally on an NVIDIA Jetson Orin Nano 8GB. The Windows workstation is used only to build/install the Android APK and, if needed, transfer this repository.
 
 ```text
-Meta glasses -> Bluetooth -> Android app
-                              |
-                              | http://127.0.0.1:8000 over USB / ADB reverse
-                              v
-                         FastAPI gateway on laptop
-                              |
-                              | /chat and /ground
-                              v
-              Ollama -> Gemma 3 4B Q4 -> RTX 4060
+Meta glasses -> Android phone -> USB/ADB reverse -> Jetson 127.0.0.1:8000
+                                                   FastAPI + Pillow
+                                                        |
+                                              Ollama 127.0.0.1:11434
+                                              gemma3:4b-it-q4_K_M
 ```
 
-- `/ground` validates and mildly enhances the captured image, sends it to Gemma 3 Vision, and
-  retries once when simple heuristics identify a weak transcription.
-- `/chat` handles customer Q&A, the displayed document analysis, and document follow-up Q&A.
-- The document Q&A prompt contains the transcription, prior session turns, and current question.
-  The transcription remains authoritative for document-specific facts, while clearly labelled general
-  banking knowledge may explain terms and adjacent banking topics. The displayed summary is not used
-  as evidence.
-- Android speech recognition and face matching remain on the phone.
-- The gateway and Ollama are loopback-only, authenticated, and have no cloud fallback.
-- Gemma 3 fits on the RTX 4060 for GPU inference. Python uses a small amount of CPU for the gateway,
-  image validation, enhancement, and USB request handling.
+The Android contracts remain `POST /ground` and `POST /chat` with `X-Local-Token`. Neither service listens on the LAN, and there is no cloud fallback or OCR pipeline.
 
-## Documentation
+## Start here
 
-Read these in order:
+1. Complete the physical and flashing prerequisites in [docs/JETSON_LOCAL_SETUP.md](docs/JETSON_LOCAL_SETUP.md).
+2. On the Jetson, run `bash inference_server/setup_jetson.sh`.
+3. Configure and build the APK on the workstation:
 
-1. [Windows setup](docs/WINDOWS_LOCAL_SETUP.md): fresh-system project download, Android Studio and
-   SDK installation, GitHub Packages authentication, Ollama/Python/Gemma 3 setup, Android
-   installation, and first offline test.
-2. [Daily start and stop](docs/DAILY_START_STOP.md): exact startup and complete shutdown after setup.
-3. [Architecture overview](docs/ARCHITECTURE_OVERVIEW.md): where each component runs and how data
-   moves through the system.
+   ```powershell
+   .\inference_server\configure_android.ps1 -BaseUrl "http://127.0.0.1:8000" -EnvFile "C:\secure\jetson.env"
+   .\gradlew.bat :app:assembleDebug
+   ```
 
-## Starting After Setup
+4. Follow [docs/DAILY_START_STOP.md](docs/DAILY_START_STOP.md) for normal use and recovery.
 
-Connect and authorize the phone over USB, start Ollama, and run from the repository:
+The token file is ignored by Git. Never paste `LOCAL_AI_TOKEN` into logs, documentation, tests, or commits. `OLLAMA_MODEL` remains configurable, but the supported and tested default is `gemma3:4b-it-q4_K_M`.
 
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\inference_server\start_local_ai.ps1 -UsbOnly
+## Development checks
+
+```bash
+python -m pytest inference_server/tests -q
 ```
 
-Keep that PowerShell window and the USB cable connected. On the phone, open
-`http://127.0.0.1:8000/health`, confirm every component is ready, close Chrome, and open the app.
-
-## Local Services
-
-| Service | Address | Main hardware | Purpose |
-| --- | --- | --- | --- |
-| FastAPI gateway | `127.0.0.1:8000` | Lightweight CPU | Authenticates and routes local requests |
-| Ollama/Gemma 3 | `127.0.0.1:11434` | RTX 4060 | Text, vision transcription, analysis, and Q&A |
-| ADB reverse | USB port mapping | Phone and laptop | Maps phone localhost to laptop localhost |
-
-## Repository Layout
-
-- `app/`: Android application.
-- `inference_server/`: FastAPI gateway, Ollama runtime, scripts, and tests.
-- `docs/`: setup, daily operation, and architecture documentation.
-- `local.properties`: ignored Android SDK, GitHub package token, local gateway URL, and token.
-- `inference_server/.env`: ignored gateway token and Ollama configuration.
-
-## Building and Testing
-
-The Meta Maven dependency may require internet during a build if it is not cached. The installed
-app requires no internet at runtime.
-
 ```powershell
-.\inference_server\.venv\Scripts\python.exe -m pip install -r inference_server\requirements-test.txt
-.\inference_server\.venv\Scripts\python.exe -m pytest inference_server\tests -q
-
 $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
 $env:ANDROID_HOME="$env:LOCALAPPDATA\Android\Sdk"
 .\gradlew.bat :app:testDebugUnitTest :app:assembleDebug
 ```
 
-## License
-
-This source code is licensed under the license found in `LICENSE`.
+Meta Device Access Toolkit remains pinned to 0.7.0. Face recognition, speech recognition, TTS, customer data, document prompts, and glasses streaming/capture are outside this migration.

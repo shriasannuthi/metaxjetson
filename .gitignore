@@ -12,4 +12,8 @@ __pycache__/
 .pytest_cache/
 /inference_server/.env
 /inference_server/.venv/
+/inference_server/jetson-validation/
+/app/src/main/assets/faces/anjan_face.png
+/app/src/main/assets/faces/rahul_face.png
+/app/src/main/assets/faces/shria_face.png
 local.properties

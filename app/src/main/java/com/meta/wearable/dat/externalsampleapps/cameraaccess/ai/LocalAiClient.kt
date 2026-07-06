@@ -135,7 +135,7 @@ class LocalAiClient(
           throw e
         } catch (e: IOException) {
           throw LocalAiException(
-              "Cannot reach the local AI server. Keep the USB cable connected and run start_local_ai.ps1 -UsbOnly on the laptop.",
+              "Cannot reach the Jetson AI server. Check the phone-to-Jetson data cable, USB debugging authorization, Jetson services, and ADB reverse rule.",
               cause = e,
           )
         }

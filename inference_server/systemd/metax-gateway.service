@@ -1,0 +1,22 @@
+[Unit]
+Description=MetaX local FastAPI inference gateway
+After=network.target ollama.service
+Requires=ollama.service
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+Group=@SERVICE_GROUP@
+WorkingDirectory=@REPO_ROOT@
+EnvironmentFile=@REPO_ROOT@/inference_server/.env
+ExecStart=@REPO_ROOT@/inference_server/.venv/bin/python -m uvicorn inference_server.app:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@REPO_ROOT@/inference_server/jetson-validation
+
+[Install]
+WantedBy=multi-user.target
