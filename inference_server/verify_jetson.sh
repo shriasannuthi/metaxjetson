@@ -16,36 +16,12 @@ export OLLAMA_MODEL
 
 curl --fail --silent --show-error http://127.0.0.1:11434/api/chat \
   -H 'Content-Type: application/json' \
-  -d "{\"model\":\"${OLLAMA_MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with only ready\"}],\"stream\":false,\"keep_alive\":-1}" \
+  -d "{\"model\":\"${OLLAMA_MODEL}\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with only ready\"}],\"stream\":false,\"keep_alive\":-1,\"options\":{\"num_ctx\":4096,\"num_predict\":8}}" \
   >"${OUTPUT_DIR}/text-probe.json"
-
-"${SERVER_DIR}/.venv/bin/python" - <<'PY' >"${OUTPUT_DIR}/vision-request.json"
-import base64
-import io
-import json
-import os
-from PIL import Image, ImageDraw
-
-image = Image.new("RGB", (320, 120), "white")
-ImageDraw.Draw(image).text((20, 45), "JETSON VISION PROBE 4827", fill="black")
-output = io.BytesIO()
-image.save(output, format="JPEG", quality=92)
-print(json.dumps({
-    "model": os.environ["OLLAMA_MODEL"],
-    "messages": [{"role": "user", "content": "Read the text in this image.",
-                  "images": [base64.b64encode(output.getvalue()).decode("ascii")]}],
-    "stream": False,
-    "keep_alive": -1,
-}))
-PY
-curl --fail --silent --show-error http://127.0.0.1:11434/api/chat \
-  -H 'Content-Type: application/json' --data-binary @"${OUTPUT_DIR}/vision-request.json" \
-  >"${OUTPUT_DIR}/vision-probe.json"
-grep -qi '4827' "${OUTPUT_DIR}/vision-probe.json" || {
-  echo "Rejected: the configured model failed the image-input probe." >&2
+grep -qi 'ready' "${OUTPUT_DIR}/text-probe.json" || {
+  echo "Rejected: text probe did not contain the expected ready response." >&2
   exit 1
 }
-rm -f "${OUTPUT_DIR}/vision-request.json"
 
 timeout 15 tegrastats --interval 1000 >"${OUTPUT_DIR}/tegrastats.txt" &
 stats_pid=$!

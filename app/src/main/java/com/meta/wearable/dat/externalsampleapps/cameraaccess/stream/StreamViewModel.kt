@@ -587,7 +587,7 @@ class StreamViewModel(
           isCapturing = true,
           isDocumentSessionActive = true,
           documentAnalysisPartial = null,
-          documentGroundingText = null,
+          documentTranscriptionText = null,
           documentAnalysis = null,
           documentQuestionStatus = "Scan in progress",
           voiceCommandStatus = "Capturing document",
@@ -617,45 +617,45 @@ class StreamViewModel(
         )
         _uiState.update {
           it.copy(
-              documentScanPhase = DocumentScanPhase.GROUNDING,
+              documentScanPhase = DocumentScanPhase.OCR,
               voiceCommandStatus = "Reading document",
               documentQuestionStatus = "Reading document",
           )
         }
 
-        val groundingStartedAtMs = SystemClock.elapsedRealtime()
+        val ocrStartedAtMs = SystemClock.elapsedRealtime()
         Log.i(
             TAG,
-            "Starting document grounding from captured photo: bitmap=${documentBitmap.width}x${documentBitmap.height}",
+            "Starting on-device OCR from captured photo: bitmap=${documentBitmap.width}x${documentBitmap.height}",
         )
-        val groundedText =
+        val ocrText =
             documentAiService.transcribeDocumentImage(documentBitmap) { partialText ->
               _uiState.update { state ->
                 state.copy(
                     documentAnalysisPartial = partialText.take(MAX_PARTIAL_RESPONSE_CHARS),
-                    documentGroundingText = partialText,
+                    documentTranscriptionText = partialText,
                 )
               }
             }
-        val groundingDurationMs = SystemClock.elapsedRealtime() - groundingStartedAtMs
-        documentSessionText = groundedText
+        val ocrDurationMs = SystemClock.elapsedRealtime() - ocrStartedAtMs
+        documentSessionText = ocrText
         _uiState.update {
           it.copy(
               documentScanPhase = DocumentScanPhase.ANALYZING,
               voiceCommandStatus = "Generating explanation",
               documentQuestionStatus = "Generating document explanation",
               documentAnalysisPartial = null,
-              documentGroundingText = groundedText,
+              documentTranscriptionText = ocrText,
           )
         }
 
         val analysisStartedAtMs = SystemClock.elapsedRealtime()
         Log.i(
             TAG,
-            "Starting document analysis from grounded text: chars=${groundedText.length}",
+            "Starting document analysis from OCR text: chars=${ocrText.length}",
         )
         val analysis =
-            documentAiService.analyzeDocument(groundedText) { partialText ->
+            documentAiService.analyzeDocument(ocrText) { partialText ->
               _uiState.update { state ->
                 state.copy(documentAnalysisPartial = partialText.take(MAX_PARTIAL_RESPONSE_CHARS))
               }
@@ -664,7 +664,7 @@ class StreamViewModel(
         val totalDurationMs = SystemClock.elapsedRealtime() - scanStartedAtMs
         Log.i(
             TAG,
-            "Document scan completed: groundingDurationMs=$groundingDurationMs, analysisDurationMs=$analysisDurationMs, totalScanDurationMs=$totalDurationMs, parsed=${analysis.json != null}, groundedChars=${groundedText.length}, rawChars=${analysis.rawJson.length}",
+            "Document scan completed: ocrDurationMs=$ocrDurationMs, analysisDurationMs=$analysisDurationMs, totalScanDurationMs=$totalDurationMs, parsed=${analysis.json != null}, ocrChars=${ocrText.length}, rawChars=${analysis.rawJson.length}",
         )
         _uiState.update {
           it.copy(
@@ -698,7 +698,7 @@ class StreamViewModel(
               isDocumentSessionActive = true,
               documentScanPhase = DocumentScanPhase.FAILED,
               documentAnalysisPartial = null,
-              documentGroundingText = null,
+              documentTranscriptionText = null,
               documentQuestionStatus = "Scan failed",
               documentQuestionError = e.message ?: "Document analysis failed",
               voiceCommandStatus = e.message ?: "Document analysis failed",
@@ -906,7 +906,7 @@ class StreamViewModel(
           isDocumentAnalyzing = false,
           documentScanPhase = DocumentScanPhase.IDLE,
           documentAnalysisPartial = null,
-          documentGroundingText = null,
+          documentTranscriptionText = null,
           documentAnalysis = null,
           isDocumentQuestionListening = false,
           documentQuestionStatus = null,

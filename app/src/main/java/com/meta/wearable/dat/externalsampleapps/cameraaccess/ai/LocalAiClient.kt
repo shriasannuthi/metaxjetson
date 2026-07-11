@@ -8,12 +8,10 @@
 
 package com.meta.wearable.dat.externalsampleapps.cameraaccess.ai
 
-import android.graphics.Bitmap
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.meta.wearable.dat.externalsampleapps.cameraaccess.BuildConfig
-import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -21,7 +19,6 @@ import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -33,12 +30,6 @@ class LocalAiClient(
     private val gson: Gson = Gson(),
 ) {
   private val serverUrl: HttpUrl? = baseUrl.trim().trimEnd('/').toHttpUrlOrNull()
-  private val groundingHttpClient =
-      httpClient
-          .newBuilder()
-          .readTimeout(GROUNDING_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-          .callTimeout(GROUNDING_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-          .build()
 
   fun isConfigured(): Boolean =
       token.isNotBlank() && serverUrl?.let { it.scheme == "http" && it.host.isPrivateLanHost() } == true
@@ -60,33 +51,6 @@ class LocalAiClient(
             .addHeader(TOKEN_HEADER, token)
             .post(gson.toJson(body).toRequestBody(JSON_MEDIA_TYPE))
             .build()
-    )
-  }
-
-  suspend fun ground(documentBitmap: Bitmap): String {
-    val imageBytes =
-        ByteArrayOutputStream().use { output ->
-          if (!documentBitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output)) {
-            throw LocalAiException("Could not encode the document image")
-          }
-          output.toByteArray()
-        }
-    val requestBody =
-        MultipartBody.Builder()
-            .setType(MultipartBody.FORM)
-            .addFormDataPart(
-                "file",
-                "document.jpg",
-                imageBytes.toRequestBody(JPEG_MEDIA_TYPE),
-            )
-            .build()
-    return executeTextRequest(
-        Request.Builder()
-            .url(endpoint("ground"))
-            .addHeader(TOKEN_HEADER, token)
-            .post(requestBody)
-            .build(),
-        groundingHttpClient,
     )
   }
 
@@ -180,12 +144,8 @@ class LocalAiClient(
   private companion object {
     const val TOKEN_HEADER = "X-Local-Token"
     const val DEFAULT_MAX_TOKENS = 320
-    const val JPEG_QUALITY = 92
     const val MAX_ERROR_CHARS = 500
-    const val GROUNDING_READ_TIMEOUT_SECONDS = 120L
-    const val GROUNDING_CALL_TIMEOUT_SECONDS = 130L
     val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
-    val JPEG_MEDIA_TYPE = "image/jpeg".toMediaType()
     val DEFAULT_HTTP_CLIENT =
         OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)

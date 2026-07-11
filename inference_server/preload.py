@@ -14,7 +14,7 @@ async def main() -> None:
         health = await runtime.health()
         if health["status"] != "ready":
             raise RuntimeError(f"Local AI preload did not become ready: {health}")
-        print("The model is downloaded and ready for offline text and vision use.")
+        print("The model is downloaded and ready for offline text-only use.")
     finally:
         await runtime.close()
 

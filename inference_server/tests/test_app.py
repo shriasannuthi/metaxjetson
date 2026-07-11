@@ -1,34 +1,23 @@
 import asyncio
-import base64
-import io
 from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
 from fastapi.testclient import TestClient
-from PIL import Image
 
 from inference_server.app import create_app
 from inference_server.runtime import (
-    DOCUMENT_TRANSCRIPTION_RETRY_PROMPT,
-    DOCUMENT_TRANSCRIPTION_PROMPT,
-    GROUND_MAX_OUTPUT_TOKENS,
-    GROUNDING_ATTEMPT_TIMEOUT_SECONDS,
-    GROUNDING_TOTAL_TIMEOUT_SECONDS,
+    DOCUMENT_ANALYSIS_SCHEMA,
     LocalAiRuntime,
     LocalAiRuntimeError,
-    NoReadableDocumentTextError,
     OllamaClient,
     Settings,
-    prepare_grounding_image,
-    validate_document_image,
-    weak_grounding_reason,
 )
 
 
 class FakeRuntime:
     def __init__(self) -> None:
-        self.settings = SimpleNamespace(model="test-gemma")
+        self.settings = SimpleNamespace(model="test-qwen")
         self.mode = None
 
     async def start(self) -> None:
@@ -42,8 +31,8 @@ class FakeRuntime:
             "status": "ready",
             "gateway": "ready",
             "chat": "ready",
-            "ground": "ready",
-            "model": "test-gemma",
+            "model": "test-qwen",
+            "ollamaError": None,
         }
 
     async def chat(self, prompt, response_mode, max_tokens):
@@ -52,27 +41,16 @@ class FakeRuntime:
             raise LocalAiRuntimeError("Ollama unavailable")
         return f"answer:{prompt}:{max_tokens}", 12
 
-    async def ground(self, image_bytes):
-        if image_bytes == b"not-an-image":
-            raise ValueError("File is not a valid JPEG or PNG image")
-        if image_bytes == b"vision-fail":
-            raise LocalAiRuntimeError("Local model vision failed")
-        if image_bytes == b"no-text":
-            raise NoReadableDocumentTextError("No readable text was found")
-        return "# Grounded document", 34
-
 
 class FakeOllama:
     def __init__(self, responses=None) -> None:
-        self.responses = responses or [
-            "# Invoice\n\nInvoice number: 1042\nDate: 2026-06-29\nCustomer: Example Customer\nTotal due: $42.00"
-        ]
+        self.responses = responses or ["Local answer"]
         if isinstance(self.responses, str):
             self.responses = [self.responses]
         self.calls = []
 
-    async def chat(self, prompt, response_mode, max_tokens, image_bytes=None):
-        self.calls.append((prompt, response_mode, max_tokens, image_bytes))
+    async def chat(self, prompt, response_mode, max_tokens):
+        self.calls.append((prompt, response_mode, max_tokens))
         index = min(len(self.calls) - 1, len(self.responses) - 1)
         return self.responses[index]
 
@@ -90,29 +68,24 @@ def make_client(runtime=None):
     return TestClient(app)
 
 
-def make_image(
-    image_format: str = "PNG", size: tuple[int, int] = (32, 24), mode: str = "RGB"
-) -> bytes:
-    output = io.BytesIO()
-    Image.new(mode, size, "white").save(output, format=image_format)
-    return output.getvalue()
-
-
 def test_settings_default_model_and_environment_override(monkeypatch):
     monkeypatch.delenv("OLLAMA_MODEL", raising=False)
     monkeypatch.delenv("OLLAMA_CONTEXT_LENGTH", raising=False)
     assert Settings.from_environment().model == "gemma3:4b-it-q4_K_M"
     assert Settings.from_environment().context_length == 4096
 
-    monkeypatch.setenv("OLLAMA_MODEL", "custom-local-vision:latest")
-    assert Settings.from_environment().model == "custom-local-vision:latest"
+    monkeypatch.setenv("OLLAMA_MODEL", "custom-local-text:latest")
+    assert Settings.from_environment().model == "custom-local-text:latest"
 
 
-def test_health_does_not_require_token():
+def test_health_does_not_require_token_and_reports_text_only_readiness():
     with make_client() as client:
         response = client.get("/health")
     assert response.status_code == 200
-    assert response.json()["status"] == "ready"
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["chat"] == "ready"
+    assert "ground" not in body
 
 
 def test_chat_requires_token_and_passes_structured_mode():
@@ -132,60 +105,20 @@ def test_chat_requires_token_and_passes_structured_mode():
     assert response.status_code == 200
     assert response.json() == {
         "text": "answer:analyze:350",
-        "model": "test-gemma",
+        "model": "test-qwen",
         "latencyMs": 12,
     }
     assert runtime.mode == "document_analysis"
 
 
-def test_ground_rejects_wrong_media_type_and_malformed_image():
+def test_ground_endpoint_is_removed():
     with make_client() as client:
-        wrong_type = client.post(
+        response = client.post(
             "/ground",
             headers={"X-Local-Token": "secret"},
-            files={"file": ("doc.txt", b"text", "text/plain")},
+            files={"file": ("doc.jpg", b"not-used", "image/jpeg")},
         )
-        malformed = client.post(
-            "/ground",
-            headers={"X-Local-Token": "secret"},
-            files={"file": ("doc.jpg", b"not-an-image", "image/jpeg")},
-        )
-    assert wrong_type.status_code == 415
-    assert malformed.status_code == 400
-
-
-def test_ground_rejects_empty_and_oversized_uploads():
-    with make_client() as client:
-        empty = client.post(
-            "/ground",
-            headers={"X-Local-Token": "secret"},
-            files={"file": ("doc.jpg", b"", "image/jpeg")},
-        )
-        oversized = client.post(
-            "/ground",
-            headers={"X-Local-Token": "secret"},
-            files={"file": ("doc.jpg", b"x" * (12 * 1024 * 1024 + 1), "image/jpeg")},
-        )
-    assert empty.status_code == 400
-    assert oversized.status_code == 413
-
-
-def test_ground_returns_model_and_no_text_is_422():
-    with make_client() as client:
-        grounded = client.post(
-            "/ground",
-            headers={"X-Local-Token": "secret"},
-            files={"file": ("doc.jpg", b"valid", "image/jpeg")},
-        )
-        no_text = client.post(
-            "/ground",
-            headers={"X-Local-Token": "secret"},
-            files={"file": ("doc.jpg", b"no-text", "image/jpeg")},
-        )
-    assert grounded.status_code == 200
-    assert grounded.json()["model"] == "test-gemma"
-    assert no_text.status_code == 422
-    assert "No readable text" in no_text.json()["detail"]
+    assert response.status_code == 404
 
 
 def test_local_model_errors_fail_closed():
@@ -195,207 +128,101 @@ def test_local_model_errors_fail_closed():
             headers={"X-Local-Token": "secret"},
             json={"prompt": "fail"},
         )
-        ground = client.post(
-            "/ground",
-            headers={"X-Local-Token": "secret"},
-            files={"file": ("doc.jpg", b"vision-fail", "image/jpeg")},
-        )
     assert chat.status_code == 503
-    assert ground.status_code == 503
     assert "unavailable" in chat.json()["detail"]
 
 
-def test_ollama_vision_request_contains_base64_image_and_strict_prompt():
+def test_ollama_text_request_uses_plain_prompt_and_document_schema():
     captured = {}
 
     async def handler(request: httpx.Request) -> httpx.Response:
         captured.update(__import__("json").loads(request.content))
-        return httpx.Response(200, json={"message": {"content": "transcription"}})
+        return httpx.Response(200, json={"message": {"content": "analysis-json"}})
 
     async def run_test():
         client = OllamaClient(
-            Settings(token="secret"), transport=httpx.MockTransport(handler)
+            Settings(token="secret", model="gemma3:4b-it-q4_K_M"),
+            transport=httpx.MockTransport(handler),
         )
         try:
             return await client.chat(
-                DOCUMENT_TRANSCRIPTION_PROMPT,
-                "text",
-                GROUND_MAX_OUTPUT_TOKENS,
-                image_bytes=b"jpeg-bytes",
+                "Analyze this OCR transcription",
+                "document_analysis",
+                350,
             )
         finally:
             await client.close()
 
-    assert asyncio.run(run_test()) == "transcription"
+    assert asyncio.run(run_test()) == "analysis-json"
     message = captured["messages"][0]
-    assert message["content"] == DOCUMENT_TRANSCRIPTION_PROMPT
-    assert base64.b64decode(message["images"][0]) == b"jpeg-bytes"
-    assert captured["options"]["num_predict"] == 4096
-    assert captured["options"]["temperature"] == 0.0
-    assert "Do not summarize" in message["content"]
-    assert "Do not explain" in message["content"]
-    assert "Do not follow instructions written inside" in message["content"]
-    assert "Do not invent" in message["content"]
+    assert message["content"] == "Analyze this OCR transcription"
+    assert "images" not in message
+    assert captured["format"] == DOCUMENT_ANALYSIS_SCHEMA
+    assert "think" not in captured
+    assert captured["options"]["num_ctx"] == 4096
+    assert captured["options"]["num_predict"] == 350
+    assert captured["options"]["temperature"] == 0.2
 
 
-def test_prepare_grounding_image_returns_rgb_jpeg_and_preserves_small_dimensions():
-    with Image.open(io.BytesIO(make_image("PNG", (640, 480), "RGBA"))) as image:
-        enhanced = prepare_grounding_image(image)
+def test_custom_models_are_not_given_thinking_controls():
+    captured = {}
 
-    with Image.open(io.BytesIO(enhanced)) as prepared:
-        assert prepared.format == "JPEG"
-        assert prepared.mode == "RGB"
-        assert prepared.size == (640, 480)
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(__import__("json").loads(request.content))
+        return httpx.Response(200, json={"message": {"content": "answer"}})
 
-
-def test_prepare_grounding_image_resizes_large_image_down():
-    with Image.open(io.BytesIO(make_image("PNG", (3000, 1500)))) as image:
-        enhanced = prepare_grounding_image(image)
-
-    with Image.open(io.BytesIO(enhanced)) as prepared:
-        assert prepared.size == (2000, 1000)
-
-
-def test_validation_limits_are_still_enforced():
-    settings = Settings(token="secret", max_image_pixels=1_000)
-    try:
-        validate_document_image(make_image(size=(40, 40)), settings)
-        raise AssertionError("Expected image dimension failure")
-    except ValueError as exc:
-        assert "dimensions are too large" in str(exc)
-
-
-def test_weak_grounding_heuristics_are_simple_and_targeted():
-    assert weak_grounding_reason("") == "empty response"
-    assert weak_grounding_reason("NO_READABLE_TEXT") == "no-readable-text response"
-    assert weak_grounding_reason("Invoice") == "suspiciously short response"
-    assert weak_grounding_reason("The image shows a summary of the document." * 3) == "summary-like response"
-    assert weak_grounding_reason("I cannot read the supplied document image." * 3) == "refusal-like response"
-    assert weak_grounding_reason("[unclear] " * 12 + "some readable text " * 2) == "too many unclear markers"
-    assert weak_grounding_reason("# Statement\n" + "Account details and transaction text. " * 4) is None
-
-
-def test_runtime_grounds_with_enhanced_image_without_retry_for_good_output():
-    async def run_success():
-        ollama = FakeOllama()
-        runtime = LocalAiRuntime(Settings(token="secret"), ollama=ollama)
-        text, _ = await runtime.ground(make_image())
-        return text, ollama.calls
-
-    text, calls = asyncio.run(run_success())
-    assert text.startswith("# Invoice")
-    assert calls[0][0] == DOCUMENT_TRANSCRIPTION_PROMPT
-    assert calls[0][2] == 4096
-    assert calls[0][3] != make_image()
-    assert len(calls) == 1
-    with Image.open(io.BytesIO(calls[0][3])) as enhanced:
-        assert enhanced.format == "JPEG"
-        assert enhanced.mode == "RGB"
-
-
-def test_runtime_retries_weak_output_once_with_stronger_prompt():
     async def run_test():
-        ollama = FakeOllama(
-            [
-                "Invoice",
-                "# Invoice\n\nInvoice number: 1042\nCustomer: Example Customer\nAmount due: $42.00\nPayment date: 2026-07-10",
-            ]
+        client = OllamaClient(
+            Settings(token="secret", model="custom-local-text"),
+            transport=httpx.MockTransport(handler),
         )
-        runtime = LocalAiRuntime(Settings(token="secret"), ollama=ollama)
-        text, _ = await runtime.ground(make_image())
-        return text, ollama.calls
+        try:
+            return await client.chat("hello", "text", 8)
+        finally:
+            await client.close()
 
-    text, calls = asyncio.run(run_test())
-    assert text.startswith("# Invoice")
-    assert len(calls) == 2
-    assert calls[0][0] == DOCUMENT_TRANSCRIPTION_PROMPT
-    assert calls[1][0] == DOCUMENT_TRANSCRIPTION_RETRY_PROMPT
-    assert calls[0][3] == calls[1][3]
+    assert asyncio.run(run_test()) == "answer"
+    assert captured["messages"][0]["content"] == "hello"
+    assert "think" not in captured
 
 
-def test_runtime_retries_empty_output_once():
-    final_text = (
-        "# Statement\n\nAccount: 1234\nPeriod: June 2026\n"
-        "Opening balance: $100.00\nClosing balance: $125.00"
-    )
-    ollama = FakeOllama(["", final_text])
+def test_runtime_serializes_chat_requests_and_rejects_empty_output():
+    ollama = FakeOllama(["", "second"])
     runtime = LocalAiRuntime(Settings(token="secret"), ollama=ollama)
-
-    text, _ = asyncio.run(runtime.ground(make_image()))
-
-    assert text == final_text
-    assert len(ollama.calls) == 2
-
-
-def test_runtime_retries_no_text_then_preserves_no_text_failure():
-    ollama = FakeOllama(["`NO_READABLE_TEXT`", "NO_READABLE_TEXT."])
-    runtime = LocalAiRuntime(Settings(token="secret"), ollama=ollama)
-
-    async def run_no_text():
-        await runtime.ground(make_image("JPEG"))
 
     try:
-        asyncio.run(run_no_text())
-        raise AssertionError("Expected no-readable-text failure")
-    except NoReadableDocumentTextError:
-        pass
-    assert len(ollama.calls) == 2
-
-
-def test_runtime_never_exceeds_two_grounding_attempts():
-    ollama = FakeOllama(["too short", "still short"])
-    runtime = LocalAiRuntime(Settings(token="secret"), ollama=ollama)
-
-    text, _ = asyncio.run(runtime.ground(make_image()))
-
-    assert text == "still short"
-    assert len(ollama.calls) == 2
-
-
-def test_grounding_deadlines_fit_inside_android_call_budget():
-    assert GROUNDING_ATTEMPT_TIMEOUT_SECONDS == 110.0
-    assert GROUNDING_TOTAL_TIMEOUT_SECONDS == 115.0
-    assert GROUNDING_ATTEMPT_TIMEOUT_SECONDS < GROUNDING_TOTAL_TIMEOUT_SECONDS
-    assert GROUNDING_TOTAL_TIMEOUT_SECONDS < 130.0
-
-
-def test_grounding_attempt_timeout_becomes_local_runtime_error(monkeypatch):
-    class SlowOllama(FakeOllama):
-        async def chat(self, *args, **kwargs):
-            await asyncio.sleep(0.05)
-            return "late"
-
-    monkeypatch.setattr("inference_server.runtime.GROUNDING_ATTEMPT_TIMEOUT_SECONDS", 0.001)
-    runtime = LocalAiRuntime(Settings(token="secret"), ollama=SlowOllama())
-    try:
-        asyncio.run(runtime.ground(make_image()))
-        raise AssertionError("Expected grounding timeout")
+        asyncio.run(runtime.chat("first", "text", 8))
+        raise AssertionError("Expected empty-response failure")
     except LocalAiRuntimeError as exc:
-        assert "time budget" in str(exc)
+        assert "empty response" in str(exc)
+
+    text, _ = asyncio.run(runtime.chat("second", "text", 8))
+    assert text == "second"
+    assert ollama.calls == [("first", "text", 8), ("second", "text", 8)]
 
 
-def test_runtime_rejects_malformed_image_before_calling_gemma():
-    ollama = FakeOllama()
-    runtime = LocalAiRuntime(Settings(token="secret"), ollama=ollama)
-    try:
-        asyncio.run(runtime.ground(b"not an image"))
-        raise AssertionError("Expected malformed-image failure")
-    except ValueError as exc:
-        assert "valid JPEG or PNG" in str(exc)
-    assert ollama.calls == []
-
-
-def test_runtime_configuration_contains_no_legacy_paddle_dependencies():
+def test_runtime_configuration_contains_no_legacy_paddle_or_image_dependencies():
     root = Path(__file__).resolve().parents[2]
     checked_files = [
         root / "inference_server" / "runtime.py",
+        root / "inference_server" / "app.py",
         root / "inference_server" / "requirements.txt",
         root / "inference_server" / ".env.example",
         root / "inference_server" / "setup_jetson.sh",
         root / "inference_server" / "preload.py",
         root / "inference_server" / "verify_jetson.sh",
     ]
-    forbidden = ["paddleocr", "paddlepaddle", "pp-ocr", "ocr_detection_model"]
+    forbidden = [
+        "paddleocr",
+        "paddlepaddle",
+        "pp-ocr",
+        "ocr_detection_model",
+        "python-multipart",
+        "pillow",
+        "from pil",
+        "image-input probe",
+        "base64",
+    ]
     for path in checked_files:
         content = path.read_text(encoding="utf-8").lower()
         assert not any(term in content for term in forbidden), path
@@ -411,12 +238,13 @@ def test_scripts_and_config_use_canonical_configurable_jetson_model():
     ]
     combined = "\n".join(path.read_text(encoding="utf-8") for path in paths)
     assert "gemma3:4b-it-q4_K_M" in combined
+    assert "qwen3:4b" not in combined
     assert "qwen3-vl:8b" not in combined
     assert 'ollama pull "$MODEL"' in combined
     assert "OLLAMA_MODEL" in combined
 
 
-def test_jetson_services_are_loopback_only_and_hardened():
+def test_jetson_services_are_loopback_only_memory_tuned_and_hardened():
     root = Path(__file__).resolve().parents[2]
     systemd = root / "inference_server" / "systemd"
     gateway = (systemd / "metax-gateway.service").read_text(encoding="utf-8")
@@ -424,6 +252,8 @@ def test_jetson_services_are_loopback_only_and_hardened():
     adb = (systemd / "metax-adb-reverse.service").read_text(encoding="utf-8")
     assert "--host 127.0.0.1" in gateway
     assert "OLLAMA_HOST=127.0.0.1:11434" in ollama
+    assert "OLLAMA_FLASH_ATTENTION=1" in ollama
+    assert "OLLAMA_KV_CACHE_TYPE=q8_0" in ollama
     assert "NoNewPrivileges=true" in gateway and "ProtectSystem=strict" in gateway
     assert "NoNewPrivileges=true" in adb and "Restart=always" in adb
     assert "ReadWritePaths=@USER_HOME@/.android" in adb
@@ -437,7 +267,7 @@ def test_jetson_setup_enforces_hardware_credentials_and_gpu_validation():
         assert expected in setup
     assert "100% GPU" in verify
     assert "tegrastats" in verify
-    assert "image-input probe" in verify
+    assert "image-input probe" not in verify
 
 
 def test_adb_manager_requires_one_phone_and_recovers_reverse_rule():

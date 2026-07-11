@@ -1,16 +1,16 @@
-# Meta glasses banking assistant — Jetson local inference
+# Meta glasses banking assistant — Jetson local text inference
 
-All AI inference runs locally on an NVIDIA Jetson Orin Nano 8GB. The Windows workstation is used only to build/install the Android APK and, if needed, transfer this repository.
+All document understanding and assistant inference run locally through an NVIDIA Jetson Orin Nano 8GB. The Android app performs on-device OCR before contacting the Jetson; the Jetson receives text only.
 
 ```text
-Meta glasses -> Android phone -> USB/ADB reverse -> Jetson 127.0.0.1:8000
-                                                   FastAPI + Pillow
-                                                        |
-                                              Ollama 127.0.0.1:11434
-                                              gemma3:4b-it-q4_K_M
+Meta glasses -> Android phone -> ML Kit OCR
+Android phone -> localhost:8000 through adb reverse over direct USB
+Jetson Orin Nano -> FastAPI /chat on 127.0.0.1:8000
+                 -> Ollama + gemma3:4b-it-q4_K_M on 127.0.0.1:11434
+                 -> NVIDIA GPU
 ```
 
-The Android contracts remain `POST /ground` and `POST /chat` with `X-Local-Token`. Neither service listens on the LAN, and there is no cloud fallback or OCR pipeline.
+The active Android contract is authenticated `POST /chat` with `X-Local-Token`. The legacy image `/ground` endpoint is intentionally removed. Neither service listens on the LAN, and there is no cloud AI fallback.
 
 ## Start here
 
@@ -39,4 +39,4 @@ $env:ANDROID_HOME="$env:LOCALAPPDATA\Android\Sdk"
 .\gradlew.bat :app:testDebugUnitTest :app:assembleDebug
 ```
 
-Meta Device Access Toolkit remains pinned to 0.7.0. Face recognition, speech recognition, TTS, customer data, document prompts, and glasses streaming/capture are outside this migration.
+Meta Device Access Toolkit remains pinned to 0.7.0. Face recognition, speech recognition, TTS, customer data, and glasses streaming/capture remain unchanged.

@@ -3,14 +3,13 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Literal
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from inference_server.runtime import (
     LocalAiRuntime,
     LocalAiRuntimeError,
-    NoReadableDocumentTextError,
     Settings,
 )
 
@@ -67,12 +66,6 @@ def create_app(
     async def runtime_error_handler(_, exc: LocalAiRuntimeError) -> JSONResponse:
         return JSONResponse(status_code=503, content={"detail": str(exc)})
 
-    @app.exception_handler(NoReadableDocumentTextError)
-    async def no_readable_text_handler(
-        _, exc: NoReadableDocumentTextError
-    ) -> JSONResponse:
-        return JSONResponse(status_code=422, content={"detail": str(exc)})
-
     @app.get("/health")
     async def health() -> dict[str, Any]:
         return await active_runtime.health()
@@ -82,25 +75,6 @@ def create_app(
         text, latency_ms = await active_runtime.chat(
             request.prompt.strip(), request.responseMode, request.maxTokens
         )
-        return TextResponse(
-            text=text,
-            model=getattr(getattr(active_runtime, "settings", None), "model", None),
-            latencyMs=latency_ms,
-        )
-
-    @app.post("/ground", response_model=TextResponse, dependencies=[Depends(require_token)])
-    async def ground(file: UploadFile = File(...)) -> TextResponse:
-        if file.content_type not in {"image/jpeg", "image/png"}:
-            raise HTTPException(status_code=415, detail="Only JPEG and PNG images are supported")
-        image_bytes = await file.read(settings.max_image_bytes + 1)
-        if not image_bytes:
-            raise HTTPException(status_code=400, detail="Image file is empty")
-        if len(image_bytes) > settings.max_image_bytes:
-            raise HTTPException(status_code=413, detail="Image exceeds the 12 MB limit")
-        try:
-            text, latency_ms = await active_runtime.ground(image_bytes)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return TextResponse(
             text=text,
             model=getattr(getattr(active_runtime, "settings", None), "model", None),

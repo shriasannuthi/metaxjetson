@@ -18,7 +18,7 @@ From the repository root:
 bash inference_server/setup_jetson.sh
 ```
 
-The script is idempotent. It installs ADB, Python dependencies and ARM64 Ollama; creates `inference_server/.env` with mode `0600`; pulls `gemma3:4b-it-q4_K_M` unless `OLLAMA_MODEL` is explicitly set; installs systemd units; and performs text, image, GPU-placement, memory, and health probes.
+The script is idempotent. It installs ADB, Python dependencies and ARM64 Ollama; creates `inference_server/.env` with mode `0600`; pulls `gemma3:4b-it-q4_K_M` unless `OLLAMA_MODEL` is explicitly set; installs loopback-only systemd units; and performs a text, GPU-placement, memory, and health validation.
 
 If `.env` does not exist, enter a strong token at the hidden prompt or leave it blank to generate one. Store a secure copy for workstation APK configuration. Do not print or commit it.
 
@@ -47,13 +47,13 @@ The ADB manager accepts exactly one authorized physical phone and continually re
 
 ## Acceptance before deployment
 
-Use representative clear, dense, rotated, weak, and unreadable banking documents. Record single-pass and forced-retry latency, output quality, peak RAM/swap, temperature, throttling, and `ollama ps` placement. Acceptance requires:
+Use representative clear, dense, rotated, weak, and unreadable banking documents. Record OCR latency, analysis latency, follow-up Q&A latency, output quality, peak RAM/swap, temperature, throttling, and `ollama ps` placement. Acceptance requires:
 
-- p95 single-pass `/ground` below 50 seconds;
-- two-attempt completion below 110 seconds;
+- document OCR plus analysis usually completes within the 3-5 second target for typical clear documents;
+- valid document-analysis JSON for representative documents;
+- no material analysis or Q&A regression against the previous baseline;
 - no OOM, unsafe swap pressure, thermal throttling, or CPU placement;
-- no material transcription or analysis regression against the laptop baseline;
 - complete document and follow-up prompts fit the measured 4096-token context without truncation;
-- correct 422 behavior for unreadable documents and 503 behavior for model/timeouts.
+- unreadable/blank OCR fails locally in Android before Jetson inference.
 
-If any criterion fails, stop deployment. Do not silently change models, extend Android timeouts, enable CPU fallback, or add cloud/OCR services.
+If any criterion fails, stop deployment. Do not silently change models, enable CPU fallback, expose services, or add cloud AI.

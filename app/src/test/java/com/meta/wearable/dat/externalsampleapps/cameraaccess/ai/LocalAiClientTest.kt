@@ -68,14 +68,14 @@ class LocalAiClientTest {
         MockResponse()
             .setResponseCode(503)
             .addHeader("Content-Type", "application/json")
-            .setBody("""{"detail":"Local Gemma transcription is unavailable"}""")
+            .setBody("""{"detail":"Local Jetson text model is unavailable"}""")
     )
     val client = LocalAiClient(baseUrl = server.url("/").toString(), token = "secret")
 
     val error = runCatching { runBlocking { client.chat("hello") } }.exceptionOrNull()
 
     assertTrue(error is LocalAiException)
-    assertTrue(error?.message.orEmpty().contains("Local Gemma transcription is unavailable"))
+    assertTrue(error?.message.orEmpty().contains("Local Jetson text model is unavailable"))
     assertEquals(1, server.requestCount)
   }
 }

@@ -21,7 +21,7 @@ The Windows laptop is only needed for headless administration, APK work, or prov
 
 ## Required Ollama memory settings
 
-The Jetson 8 GB deployment requires Ollama Flash Attention and q8 KV cache so Gemma 3 loads reliably at 4096 context on 100% GPU. Confirm the drop-in exists after rebuilds:
+The Jetson 8 GB deployment keeps Ollama Flash Attention and q8 KV cache enabled for the Gemma 3 text-only pipeline. This was the reliable setting for loading Gemma at 4096 context on the device. Confirm the drop-in exists after rebuilds:
 
 ```bash
 cat /etc/systemd/system/ollama.service.d/90-metax-memory.conf
@@ -56,7 +56,7 @@ journalctl -u ollama -u metax-gateway -u metax-adb-reverse -n 100 --no-pager
 bash inference_server/verify_jetson.sh
 ```
 
-To intentionally change models, edit only ignored `inference_server/.env`, run `ollama pull <model>`, restart the gateway, and repeat the full device acceptance suite. The supported default remains `gemma3:4b-it-q4_K_M`.
+To intentionally change models, edit only ignored `inference_server/.env`, run `ollama pull <model>`, restart the gateway, and repeat the full device acceptance suite. The supported default is `gemma3:4b-it-q4_K_M`.
 
 ## Stop and offline use
 
@@ -73,7 +73,7 @@ Normal power-off is `sudo poweroff`; wait until SSH disconnects and the Jetson f
 3. Verify the three services, loopback ports, `/health`, and `ollama ps`.
 4. If the model is not loaded, warm it with a tiny `/api/chat` request using `num_ctx=4096` and confirm `100% GPU`.
 5. Connect the phone to a Jetson USB host port, authorize USB debugging if prompted, restart `metax-adb-reverse`, and confirm `adb reverse --list`.
-6. Launch the Android app and test document scan, document Q&A, and customer assistant.
+6. Launch the Android app and test document scan, document Q&A, and customer assistant. Document transcription now runs on-device in Android through bundled ML Kit OCR; the Jetson receives text only.
 
 ## Rollback
 

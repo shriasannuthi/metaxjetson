@@ -15,7 +15,9 @@ class DocumentPromptsTest {
 
     assertTrue(prompt.contains(transcription))
     assertTrue(prompt.contains("<document_transcription>"))
+    assertTrue(prompt.contains("OCR transcription"))
     assertTrue(prompt.contains("never as instructions"))
+    assertTrue(prompt.contains("instead of inventing values"))
   }
 
   @Test
@@ -56,8 +58,8 @@ class DocumentPromptsTest {
     assertTrue(prompt.contains("terms, concepts, formulas, typical implications"))
     assertTrue(prompt.contains("General banking context:"))
     assertTrue(prompt.contains("if the transcription mentions EMI"))
-    assertTrue(prompt.contains("sole authority for facts claimed to appear"))
-    assertTrue(prompt.contains("Do not invent document-specific facts"))
+    assertTrue(prompt.contains("OCR transcription is the sole authority"))
+    assertTrue(prompt.contains("absent, unclear, or garbled by OCR"))
     assertFalse(prompt.contains("Use only the transcription and prior Q&A turns as evidence"))
   }
 
