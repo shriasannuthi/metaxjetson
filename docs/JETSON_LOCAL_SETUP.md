@@ -24,6 +24,64 @@ If `.env` does not exist, enter a strong token at the hidden prompt or leave it 
 
 Successful validation writes non-secret evidence under the ignored `inference_server/jetson-validation/` directory. Setup fails unless `ollama ps` reports `100% GPU`, swap use remains at or below 512MB, and observed temperatures remain below 85°C; CPU fallback is never accepted.
 
+## Required Ollama memory settings
+
+The Jetson 8GB deployment must keep these Ollama service settings:
+
+```ini
+Environment="OLLAMA_FLASH_ATTENTION=1"
+Environment="OLLAMA_KV_CACHE_TYPE=q8_0"
+Environment="OLLAMA_CONTEXT_LENGTH=4096"
+```
+
+Check the active service environment with:
+
+```bash
+sudo systemctl show ollama --property=Environment --no-pager
+```
+
+## Reliable model warmup
+
+After setup, reboot, or service changes, use this startup sequence:
+
+```bash
+sudo systemctl restart ollama
+sleep 5
+
+sudo sync
+sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
+sudo sh -c 'echo 1 > /proc/sys/vm/compact_memory'
+
+curl --fail --show-error --silent http://127.0.0.1:11434/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"gemma3:4b-it-q4_K_M","messages":[{"role":"user","content":"Reply with only: ready"}],"stream":false,"keep_alive":-1,"options":{"num_ctx":4096,"num_predict":8}}'
+
+ollama ps
+sudo systemctl restart metax-gateway metax-adb-reverse
+```
+
+Expected `ollama ps`:
+
+```text
+gemma3:4b-it-q4_K_M ... 100% GPU ... 4096 ... Forever
+```
+
+If the first warmup fails with `cudaMalloc` or `out of memory`, repeat the exact block once. The Jetson can fail the first CUDA allocation even when q8 KV is configured correctly.
+
+Only if it fails after two clean tries, use q4 KV as a temporary reliability fallback:
+
+```bash
+sudo tee /etc/systemd/system/ollama.service.d/90-metax-memory.conf >/dev/null <<'EOF'
+[Service]
+Environment="OLLAMA_FLASH_ATTENTION=1"
+Environment="OLLAMA_KV_CACHE_TYPE=q4_0"
+Environment="OLLAMA_CONTEXT_LENGTH=4096"
+EOF
+sudo systemctl daemon-reload
+```
+
+Then rerun the warmup block. Do not accept CPU fallback. To return to q8, remove `90-metax-memory.conf`; the installed `metax-local.conf` already sets q8.
+
 ## Phone and APK
 
 On the phone:
