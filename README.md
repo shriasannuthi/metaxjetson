@@ -1,4 +1,4 @@
-# Camera Access App
+# Branch of the Future App
 
 A sample Android application demonstrating integration with Meta Wearables Device Access Toolkit. This app showcases streaming video from Meta AI glasses, capturing photos, and managing connection states.
 
